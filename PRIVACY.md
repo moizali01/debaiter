@@ -1,4 +1,4 @@
-# Privacy Policy for DebAIted
+# Privacy Policy for DebAIter
 ## Privacy Policy
 
 Last updated: October 06, 2025
