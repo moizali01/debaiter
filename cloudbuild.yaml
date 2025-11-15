@@ -17,3 +17,6 @@ steps :
     - '--allow-unauthenticated'
 images : 
   - 'gcr.io/debaiter-478318/backend'
+
+options :
+  logging : CLOUD_LOGGING_ONLY
