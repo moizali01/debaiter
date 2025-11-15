@@ -12,6 +12,7 @@
   "dependencies": {
     "dotenv": "^17.2.3",
     "express": "^5.1.0",
+    "lorem-ipsum": "^2.0.8",
     "pino-http": "^11.0.0"
   }
 }
