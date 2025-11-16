@@ -36,7 +36,9 @@ app.use(express.json()) // for parsing application/json
 app.use(express.urlencoded({ extended: true })) // for parsing application/x-www-form-urlencoded
 
 // Disabling CORS for now, until we get a domain for our app
-// app.use(cors({ origin: 'http://localhost:3000' }));
+app.use(cors({ origin: process.env.FRONTEND_HOSTNAME }));
+
+app.use(logger);
 
 app.post("/promptAI",(req,res) => {
 	logger(req,res)
