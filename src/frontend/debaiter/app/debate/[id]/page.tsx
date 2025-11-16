@@ -1,325 +1,377 @@
-// Page Author: Moiz (updated with Socket.IO support)
-// Description: Debate page component that handles the debate interface and logic.
+// Page Author: Moiz
+// Description: Debate page component with Socket.IO integration
 
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
 import type { FormEvent } from 'react';
 import { useSearchParams } from 'next/navigation';
-import type { Socket } from 'socket.io-client';
-import { io } from 'socket.io-client';
+import { useSession } from 'next-auth/react';
+import { io, Socket } from 'socket.io-client';
 
-// This is a type for our chat messages
+
+//type for meessage
 type Message = {
-  id: string;
-  text: string;
+    id: number | string;
+    text: string;
+    from: 'user' | 'opponent';
+    timestamp: number;
 };
 
-// Payload type for messages coming from the Socket.IO server
-type NewArgumentPayload = {
-  debateId: string;
-  fromRole: string;
-  text: string;
-};
+export default function DebatePage({ params }: { params: { id: string } }) {
+    const { data: session } = useSession();
+    //get the properties topic, role, opponent from the url
+    const searchParams = useSearchParams();
+    const topic = searchParams.get('topic') || 'No topic selected';
+    const userRole = searchParams.get('role');
+    const opponentType = searchParams.get('opponent');
 
-type JoinDebatePayload = {
-  debateId: string;
-  role: string;
-  name: string;
-};
+    //set opponent role
+    const opponentRole = userRole === 'affirmative' ? 'negative' : 'affirmative';
+    //debateId used as room id in socket.io
+    const debateId = params.id;
 
-type DebatePageProps = {
-  params: { id: string };
-};
+    const [userInput, setUserInput] = useState('');
+    const [isLoading, setIsLoading] = useState(false);
+    const [timer, setTimer] = useState<number | null>(null);
+    const [isTurnActive, setIsTurnActive] = useState(false);
+    const [messages, setMessages] = useState<Message[]>([]);
+    const [isTyping, setIsTyping] = useState(false);
+    const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'connected' | 'disconnected'>('connecting');
 
-const SOCKET_URL =
-  process.env.NEXT_PUBLIC_SOCKET_URL || 'http://localhost:8080';
+    const socketRef = useRef<Socket | null>(null);
+    const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-export default function DebatePage({ params }: DebatePageProps) {
-  const searchParams = useSearchParams();
-  const debateId = params.id;
+    // initialize the socket connection
+    useEffect(() => {
+        if (!session?.user) return;
 
-  const topic = searchParams.get('topic') ?? 'Untitled Topic';
-  const userRole = searchParams.get('role') ?? 'affirmative';
-  const opponentLabel = searchParams.get('opponent') ?? 'Opponent';
+        const socket = io('http://localhost:8080', {
+            transports: ['websocket', 'polling']
+        });
 
-  const [userMessages, setUserMessages] = useState<Message[]>([]);
-  const [opponentMessages, setOpponentMessages] = useState<Message[]>([]);
-  const [userInput, setUserInput] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
+        socketRef.current = socket;
 
-  // Timer & turn logic
-  const [timer, setTimer] = useState<number | null>(60);
-  const [isTurnActive, setIsTurnActive] = useState(true);
+        socket.on('connect', () => {
+            console.log('Connected to server');
+            setConnectionStatus('connected');
 
-  // Socket.IO reference
-  const socketRef = useRef<Socket | null>(null);
+            // event for joining the room based on debateId
+            socket.emit('join-debate', {
+                debateId,
+                userId: session.user.email,
+                userName: session.user.name,
+                role: userRole,
+                opponentType
+            });
+        });
 
-  // --- Setup Socket.IO connection ---
-  useEffect(() => {
-    const socket = io(SOCKET_URL, {
-      transports: ['websocket', 'polling'],
-    });
+        socket.on('disconnect', () => {
+            console.log('Disconnected from server');
+            setConnectionStatus('disconnected');
+        });
 
-    socketRef.current = socket;
+        // event receive from server for debate state
+        socket.on('debate-state', ({ currentTurn, timerActive }) => {
+            const isMyTurn = currentTurn === userRole;
+            setIsTurnActive(isMyTurn);
+            if (isMyTurn && timerActive) {
+              //if it's user's turn start timer
+                setTimer(60);  
+            }
+        });
 
-    // Join debate room when connected
-    const joinPayload: JoinDebatePayload = {
-      debateId,
-      role: userRole,
-      name: 'You',
-    };
-    socket.emit('join-debate', joinPayload);
+        // if both user connected to room then receives even from server (human vs Human)
+        socket.on('debate-ready', ({ message, currentTurn }) => {
+            console.log(message);
+            const isMyTurn = currentTurn === userRole;
+            setIsTurnActive(isMyTurn);
+            if (isMyTurn) {
+                setTimer(60);
+            }
+        });
 
-    socket.on('connect', () => {
-      console.log('Socket connected:', socket.id);
-    });
+        // if server sends a new message from opponent
+        socket.on('new-message', ({ from, text, timestamp }) => {
+            const newMessage: Message = {
+                id: `${from}-${timestamp}`,
+                text,
+                from: from === userRole ? 'user' : 'opponent',
+                timestamp
+            };
+            setMessages(prev => [...prev, newMessage]);
+            setIsLoading(false);
+        });
 
-    socket.on(
-      'new-argument',
-      ({ debateId: roomId, fromRole, text }: NewArgumentPayload) => {
-        if (roomId !== debateId) return;
-        const msg: Message = { id: crypto.randomUUID(), text };
+        // handle turn changes event from server
+        socket.on('turn-changed', ({ currentTurn, startTimer, reason }) => {
+            const isMyTurn = currentTurn === userRole;
+            setIsTurnActive(isMyTurn);
+            
+            if (isMyTurn && startTimer) {
+                setTimer(60);
+            } else {
+                setTimer(null);
+            }
 
-        // If the message was sent by the same role as this user,
-        // treat it as a "user" message; otherwise as "opponent".
-        if (fromRole === userRole) {
-          setUserMessages((prev) => [...prev, msg]);
-        } else {
-          setOpponentMessages((prev) => [...prev, msg]);
+            if (reason === 'timer-expired') {
+                console.log('Turn switched due to timer expiration');
+            }
+        });
+
+        // while opponent is typing
+        socket.on('opponent-typing', () => {
+            setIsTyping(true);
+        });
+        
+        //while opponent stopped typing for 2 sec
+        socket.on('opponent-stop-typing', () => {
+            setIsTyping(false);
+        });
+
+        // when user joins
+        socket.on('participant-joined', ({ userName, role }) => {
+            console.log(`${userName} joined as ${role}`);
+        });
+        // when user leaves
+        socket.on('participant-left', ({ userName, role }) => {
+            console.log(`${userName} (${role}) left the debate`);
+        });
+
+        socket.on('error', ({ message }) => {
+            console.error('Socket error:', message);
+            alert(message);
+        });
+
+        // Cleanup on unmount
+        return () => {
+            socket.disconnect();
+        };
+    }, [session, debateId, userRole, opponentType]);
+
+    // Timer countdown effect
+    useEffect(() => {
+        if (timer === null) return;
+
+        if (timer === 0) {
+            setIsTurnActive(false);
+            setTimer(null);
+            console.log("Time's up!");
+            
+            // send timer-expired event to server
+            socketRef.current?.emit('timer-expired', {
+                debateId,
+                role: userRole
+            });
+            return;
         }
-      }
+
+        const intervalId = setInterval(() => {
+            setTimer((prev) => (prev ? prev - 1 : null));
+        }, 1000);
+
+        return () => clearInterval(intervalId);
+    }, [timer, debateId, userRole]);
+
+    // typing or stopped typing handler
+    const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+        setUserInput(e.target.value);
+
+        // typing event
+        if (socketRef.current && !isLoading) {
+            socketRef.current.emit('typing', { debateId, role: userRole });
+
+            if (typingTimeoutRef.current) {
+                clearTimeout(typingTimeoutRef.current);
+            }
+
+            // stopped typing event after 2 sec
+            typingTimeoutRef.current = setTimeout(() => {
+                socketRef.current?.emit('stop-typing', { debateId });
+            }, 2000);
+        }
+    };
+
+    //on submit event handler
+    const handleSubmit = async (e: FormEvent) => {
+        e.preventDefault();
+        if (!userInput.trim() || isLoading || !isTurnActive || !socketRef.current) return;
+
+        const currentInput = userInput.trim();
+        setUserInput('');
+        setIsLoading(true);
+        setIsTurnActive(false);
+        setTimer(null);
+
+
+        socketRef.current.emit('stop-typing', { debateId });
+
+        // send message to server
+        socketRef.current.emit('send-message', {
+            debateId,
+            message: currentInput,
+            role: userRole,
+            opponentType
+        });
+    };
+
+    const formatRole = (role: string | null) => {
+        if (role === 'affirmative') return 'Affirmative Speaker';
+        if (role === 'negative') return 'Negative Speaker';
+        return 'Participant';
+    };
+
+    const formatTime = (seconds: number | null) => {
+        if (seconds === null) return '...';
+        const mins = Math.floor(seconds / 60);
+        const secs = seconds % 60;
+        return `${mins}:${secs < 10 ? '0' : ''}${secs}`;
+    };
+
+    const ChatBubble = ({ message }: { message: Message }) => (
+        <div
+            className={`max-w-xs rounded-lg px-4 py-2 ${
+                message.from === 'user'
+                    ? 'self-end rounded-br-none bg-blue-600 text-white'
+                    : 'self-start rounded-bl-none bg-zinc-200 text-zinc-900 dark:bg-zinc-800 dark:text-white'
+            }`}
+        >
+            {message.text}
+        </div>
     );
 
-    socket.on('player-joined', (payload: JoinDebatePayload) => {
-      console.log('Player joined:', payload);
-    });
-
-    socket.on('player-left', (payload: JoinDebatePayload) => {
-      console.log('Player left:', payload);
-    });
-
-    socket.on('disconnect', () => {
-      console.log('Socket disconnected');
-    });
-
-    return () => {
-      socket.disconnect();
-    };
-  }, [debateId, userRole]);
-
-  // --- Timer effect (behaviour preserved) ---
-  useEffect(() => {
-    if (timer === null) return;
-
-    // If timer finished
-    if (timer === 0) {
-      setIsTurnActive(false);
-      setTimer(null);
-      console.log("Time's up!");
-      return;
-    }
-
-    // Countdown logic
-    const intervalId = setInterval(() => {
-      setTimer((prev) => (prev !== null && prev > 0 ? prev - 1 : prev));
-    }, 1000);
-
-    // Cleanup interval
-    return () => clearInterval(intervalId);
-  }, [timer]);
-
-  // --- Form submit handler (behaviour preserved) ---
-  const handleSubmit = async (e: FormEvent) => {
-    e.preventDefault();
-    if (!userInput.trim() || isLoading || !isTurnActive) return;
-
-    const currentInput = userInput;
-    setUserInput('');
-    setIsLoading(true);
-
-    // Locally add the new user message (for instant feedback)
-    const newUserMessage: Message = {
-      id: crypto.randomUUID(),
-      text: currentInput,
-    };
-    setUserMessages((prev) => [...prev, newUserMessage]);
-
-    // Broadcast via Socket.IO to other players
-    socketRef.current?.emit('submit-argument', {
-      debateId,
-      role: userRole,
-      text: currentInput,
-    });
-
-    try {
-      // Keep existing backend behaviour: call /MessageToAI
-      const response = await fetch('http://localhost:8080/MessageToAI', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: currentInput }),
-      });
-
-      if (!response.ok) {
-        console.error('Error from /MessageToAI:', response.statusText);
-      } else {
-        const data = (await response.json()) as { reply?: string };
-        const aiText = data.reply ?? '(No response received)';
-
-        const newOpponentMessage: Message = {
-          id: crypto.randomUUID(),
-          text: aiText,
-        };
-
-        setOpponentMessages((prev) => [...prev, newOpponentMessage]);
-      }
-    } catch (err) {
-      console.error('Failed to contact AI backend:', err);
-    } finally {
-      // Restart the turn timer exactly like before
-      setTimer(60);
-      setIsTurnActive(true);
-      setIsLoading(false);
-    }
-  };
-
-  const isInputDisabled = !isTurnActive || isLoading;
-
-  return (
-    <main className="min-h-screen bg-slate-950 text-slate-100 flex flex-col">
-      <header className="border-b border-slate-800 px-4 py-3 flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-semibold">Debate Room</h1>
-          <p className="text-sm text-slate-400">
-            Topic: <span className="font-medium text-slate-200">{topic}</span>
-          </p>
-        </div>
-        <div className="flex items-center gap-4">
-          <div className="text-right text-sm">
-            <div>
-              You are:{' '}
-              <span className="font-medium capitalize">{userRole}</span>
-            </div>
-            <div className="text-slate-400 text-xs">
-              Opponent: <span className="font-medium">{opponentLabel}</span>
-            </div>
-          </div>
-          <div className="px-3 py-1 rounded-full bg-slate-800 border border-slate-700 text-xs font-mono">
-            {timer !== null ? (
-              <>
-                Time left:{' '}
-                <span className="font-semibold">
-                  {timer.toString().padStart(2, '0')}s
-                </span>
-              </>
-            ) : (
-              <span className="text-red-400 font-semibold">Time&apos;s up</span>
-            )}
-          </div>
-        </div>
-      </header>
-
-      <section className="flex-1 px-4 py-4 max-w-5xl mx-auto w-full flex flex-col gap-4">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 flex-1">
-          {/* Your arguments */}
-          <div className="border border-slate-800 rounded-xl flex flex-col overflow-hidden bg-slate-900/60">
-            <div className="px-4 py-3 border-b border-slate-800 flex items-center justify-between">
-              <h2 className="text-sm font-semibold">Your Arguments</h2>
-              <span className="text-xs text-emerald-400 capitalize">
-                {userRole}
-              </span>
-            </div>
-            <div className="flex-1 overflow-y-auto p-4 space-y-2">
-              {userMessages.length === 0 && (
-                <p className="text-xs text-slate-500">
-                  You haven&apos;t said anything yet. Start the debate!
-                </p>
-              )}
-              {userMessages.map((message) => (
-                <div key={message.id} className="flex justify-end">
-                  <div className="max-w-[80%] rounded-lg bg-emerald-600 px-3 py-2 text-sm shadow">
-                    {message.text}
-                  </div>
+    return (
+        <div className="flex h-[calc(100vh-4rem)] flex-col">
+            {/* Topic Header */}
+            <header className="w-full border-b border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-black">
+                <div className="flex items-center justify-between">
+                    <h1 className="truncate text-center text-base font-semibold text-zinc-900 dark:text-white">
+                        <span className="text-zinc-500">Topic: </span>
+                        {topic}
+                    </h1>
+                    <div className={`ml-4 flex items-center gap-2 text-xs ${
+                        connectionStatus === 'connected' ? 'text-green-600' : 
+                        connectionStatus === 'connecting' ? 'text-yellow-600' : 'text-red-600'
+                    }`}>
+                        <div className={`h-2 w-2 rounded-full ${
+                            connectionStatus === 'connected' ? 'bg-green-600' : 
+                            connectionStatus === 'connecting' ? 'bg-yellow-600 animate-pulse' : 'bg-red-600'
+                        }`} />
+                        {connectionStatus}
+                    </div>
                 </div>
-              ))}
-            </div>
-          </div>
+            </header>
 
-          {/* Opponent arguments */}
-          <div className="border border-slate-800 rounded-xl flex flex-col overflow-hidden bg-slate-900/40">
-            <div className="px-4 py-3 border-b border-slate-800 flex items-center justify-between">
-              <h2 className="text-sm font-semibold">
-                {opponentLabel}&apos;s Arguments
-              </h2>
-              <span className="text-xs text-sky-400 capitalize">opponent</span>
-            </div>
-            <div className="flex-1 overflow-y-auto p-4 space-y-2">
-              {opponentMessages.length === 0 && (
-                <p className="text-xs text-slate-500">
-                  Waiting for your opponent to respond…
-                </p>
-              )}
-              {opponentMessages.map((message) => (
-                <div key={message.id} className="flex justify-start">
-                  <div className="max-w-[80%] rounded-lg bg-slate-800 px-3 py-2 text-sm shadow">
-                    {message.text}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
+            <main className="flex h-[calc(100vh-4rem)] flex-col lg:flex-row">
+                {/* User Panel (Left) */}
+                <section className="flex w-full flex-col border-r border-zinc-200 dark:border-zinc-800 lg:w-1/2">
+                    <div className="border-b border-zinc-200 p-4 dark:border-zinc-800">
+                        <h2 className="font-semibold text-zinc-900 dark:text-white">You</h2>
+                        <p className="text-sm text-zinc-500">{formatRole(userRole)}</p>
+                    </div>
+
+                    {/* Message List */}
+                    <div className="flex-grow space-y-4 overflow-y-auto p-6">
+                        {messages
+                            .filter(msg => msg.from === 'user')
+                            .map(msg => (
+                                <ChatBubble key={msg.id} message={msg} />
+                            ))}
+                    </div>
+
+                    {/* Input Box */}
+                    <form
+                        onSubmit={handleSubmit}
+                        className="border-t border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-black"
+                    >
+                        <div className="mb-2 flex justify-between text-sm">
+                            <span
+                                className={`font-medium ${
+                                    !isTurnActive && timer === null
+                                        ? 'text-zinc-500'
+                                        : 'text-zinc-900 dark:text-white'
+                                }`}
+                            >
+                                {isTurnActive ? 'Your Turn' : 'Waiting for Opponent...'}
+                            </span>
+                            <span
+                                className={`font-mono font-semibold ${
+                                    timer !== null && timer <= 10
+                                        ? 'text-red-600'
+                                        : 'text-zinc-700 dark:text-zinc-300'
+                                }`}
+                            >
+                                {timer !== null && `Time: ${formatTime(timer)}`}
+                            </span>
+                        </div>
+
+                        <div className="flex items-start gap-3">
+                            <textarea
+                                value={userInput}
+                                onChange={handleInputChange}
+                                placeholder={
+                                    isTurnActive
+                                        ? 'Enter your argument...'
+                                        : isLoading
+                                        ? 'Opponent is thinking...'
+                                        : "Time's up! Waiting for opponent."
+                                }
+                                rows={3}
+                                className="flex-grow resize-none rounded-lg border border-zinc-300 p-2 text-sm text-zinc-900 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white"
+                                disabled={isLoading || !isTurnActive}
+                            />
+                            <button
+                                type="submit"
+                                className="h-10 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-zinc-400"
+                                disabled={isLoading || !isTurnActive}
+                            >
+                                {isLoading ? (
+                                    <div className="h-5 w-5 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                                ) : (
+                                    <SendIcon />
+                                )}
+                            </button>
+                        </div>
+                    </form>
+                </section>
+
+                {/* Opponent Panel (Right) */}
+                <section className="flex w-full flex-col lg:w-1/2">
+                    <div className="border-b border-zinc-200 p-4 dark:border-zinc-800">
+                        <h2 className="font-semibold text-zinc-900 dark:text-white">
+                            Opponent ({opponentType === 'ai' ? 'AI' : 'Human'})
+                        </h2>
+                        <p className="text-sm text-zinc-500">{formatRole(opponentRole)}</p>
+                    </div>
+
+                    {/* Message List */}
+                    <div className="flex-grow space-y-4 overflow-y-auto p-6">
+                        {messages
+                            .filter(msg => msg.from === 'opponent')
+                            .map(msg => (
+                                <ChatBubble key={msg.id} message={msg} />
+                            ))}
+                        {(isLoading || isTyping) && (
+                            <div className="self-start rounded-lg rounded-bl-none bg-zinc-200 px-4 py-2 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">
+                                <span className="animate-pulse">Opponent is typing...</span>
+                            </div>
+                        )}
+                    </div>
+                </section>
+            </main>
         </div>
-
-        {/* Input area */}
-        <form
-          onSubmit={handleSubmit}
-          className="mt-2 border border-slate-800 rounded-xl bg-slate-900/60 px-3 py-2 flex items-center gap-2"
-        >
-          <textarea
-            className="flex-1 resize-none bg-transparent border-none outline-none text-sm text-slate-100 placeholder:text-slate-500 px-2 py-1"
-            rows={2}
-            placeholder={
-              isInputDisabled
-                ? isLoading
-                  ? 'Waiting for opponent...'
-                  : "It's not your turn yet."
-                : 'Type your argument here…'
-            }
-            value={userInput}
-            onChange={(e) => setUserInput(e.target.value)}
-            disabled={isInputDisabled}
-          />
-
-          <button
-            type="submit"
-            disabled={isInputDisabled || !userInput.trim()}
-            className="inline-flex items-center justify-center rounded-lg px-3 py-2 text-sm font-medium bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-700 disabled:text-slate-400 disabled:cursor-not-allowed transition-colors"
-            aria-label="Send message"
-          >
-            <SendIcon />
-          </button>
-        </form>
-
-        <p className="text-xs text-slate-500 text-center mt-1">
-          Turn status:{' '}
-          {isTurnActive ? (
-            <span className="text-emerald-400 font-medium">Your turn</span>
-          ) : (
-            <span className="text-slate-400">
-              Waiting for the next round to start.
-            </span>
-          )}
-        </p>
-      </section>
-    </main>
-  );
+    );
 }
 
-// --- Send Icon SVG (simple) ---
 function SendIcon() {
-  return (
-    <span className="inline-block text-base leading-none rotate-45">
-      ➤
-    </span>
-  );
+    return (
+        <svg
+            xmlns="http://www.w3.org/2000/svg"
+            viewBox="0 0 20 20"
+            fill="currentColor"
+            className="h-5 w-5"
+        >
+            <path d="M3.105 3.106a.75.75 0 01.884-.06l14.25 8.25a.75.75 0 010 1.308l-14.25 8.25a.75.75 0 01-.884-.06.75.75 0 01-.06-.884l1.9-5.25H9.75a.75.75 0 000-1.5H4.945L3.045 3.99a.75.75 0 01.06-.884z" />
+        </svg>
+    );
 }
