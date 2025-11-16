@@ -38,8 +38,6 @@ app.use(express.urlencoded({ extended: true })) // for parsing application/x-www
 // Disabling CORS for now, until we get a domain for our app
 // app.use(cors({ origin: 'http://localhost:3000' }));
 
-app.use(logger);
-
 app.post("/promptAI",(req,res) => {
 	logger(req,res)
 
@@ -52,7 +50,7 @@ app.post("/promptAI",(req,res) => {
 
 	aiClient.models.generateContent({
 		model : modelId,
-		contents : req.body.prompt
+		contents : req.body.message
 	}).then((aiResponse) => {
 			res.status(200).send({
 				response : aiResponse.text
