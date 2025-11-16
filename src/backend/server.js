@@ -1,11 +1,31 @@
-'use strict'
-const dotenv = require("dotenv")
-const logger = require("pino-http")()
-const express = require("express")
-const cors = require("cors");
+import dotenv from "dotenv"
+import logger from "pino-http"
+import express from "express"
+import cors from "cors"
+
+import { GoogleGenAI } from "@google/genai"
+import { GoogleAuth } from "google-auth-library"
 
 // Load environment variables from .env
 dotenv.config()
+
+const modelId = process.env.MODEL_ID
+const projectId = process.env.PROJECT_ID
+const projectLocation = process.env.PROJECT_LOCATION
+const appCredentials = process.env.GOOGLE_APPLICATION_CREDENTIALS
+const appScope = process.env.GOOGLE_VERTEX_AI_SCOPE
+
+const authClient = new GoogleAuth({
+	keyFile : appCredentials,
+	scopes : [appScope]
+})
+
+const aiClient = new GoogleGenAI({
+	vertexai : true,
+	project : projectId,
+	location : projectLocation,
+	googleAuthOptions : authClient
+})
 
 const app = express()
 
@@ -13,7 +33,10 @@ const app = express()
 app.disable("x-powered-by")
 app.use(express.text()) // for parsing text/plain
 app.use(express.json()) // for parsing application/json
-app.use(express.urlencoded({extended : true})) // for parsing application/x-www-form-urlencoded
+app.use(express.urlencoded({ extended: true })) // for parsing application/x-www-form-urlencoded
+
+// Disabling CORS for now, until we get a domain for our app
+// app.use(cors({ origin: 'http://localhost:3000' }));
 
 app.use(cors({ origin: 'http://localhost:3000' }));
 
@@ -22,38 +45,24 @@ app.use(logger);
 app.post("/promptAI",(req,res) => {
 	logger(req,res)
 
-	const apiReq = new Request("http://localhost:8080/randomEndpoint",{
-		method : "POST",
-		headers : {
-			"Content-Type" : "application/json"
-		},
-		body : JSON.stringify({
-			name : "Deniz"
+	if(req.body === undefined || req.body.message === undefined || typeof req.body.message !== "string"){
+		res.status(403).send({
+			error : "Missing valid prompt in body"
 		})
+		return;
+	}
+
+	aiClient.models.generateContent({
+		model : modelId,
+		contents : req.body.message
+	}).then((aiResponse) => {
+			res.status(200).send({
+				response : aiResponse.text
+			})
 	})
 
-	fetch(apiReq)
-	.then((resp) => resp.text())
-	.then((bodyText) => res.send(`This is what randomEndpoint said ${bodyText}`))
+	return;
 })
-
-
-app.post('/MessageToAI', (req, res) => {
-  const userMessage = req.body.message;
-
-  if (!userMessage) {
-    return res.status(400).json({ error: 'No message was provided.' });
-  }
-
-  // This is where you would call the Gemini API, etc.
-  console.log(`Received message: ${userMessage}`);
-  const aiResponse = `Bla Bla Bla. You just said: "${userMessage}"`;
-
-
-  // send something back to the frontend
-  res.status(200).json({ reply: aiResponse });
-});
-
 
 app.listen(8080, () => {
 	console.log("Server started on port 8080")
