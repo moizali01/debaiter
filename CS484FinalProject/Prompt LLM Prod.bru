@@ -1,0 +1,26 @@
+meta {
+  name: Prompt LLM Prod
+  type: http
+  seq: 3
+}
+
+post {
+  url: https://debaiter-backend-service-798354115478.us-central1.run.app/promptAI
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "message" : "Tell me who you are?"
+  }
+}
+
+body:text {
+  Hello, this is me pinging the API
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}
