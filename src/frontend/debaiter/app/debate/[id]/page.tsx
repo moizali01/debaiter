@@ -88,7 +88,7 @@ export default function DebatePage({ params }: { params: { id: string } }) {
 
         // send message to backend to get AI response
         try {
-            const response = await fetch('http://localhost:8080/MessageToAI', {
+            const response = await fetch('https://debaiter-backend-service-798354115478.us-central1.run.app/promptAI', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',

@@ -1,0 +1,26 @@
+meta {
+  name: Prompt LLM Local
+  type: http
+  seq: 1
+}
+
+post {
+  url: http://localhost:8080/promptAI
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "message" : "Give me a quick introduction on who you are?"
+  }
+}
+
+body:text {
+  Hello, this is me pinging the API
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}
