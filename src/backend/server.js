@@ -53,7 +53,7 @@ app.post("/promptAI",(req,res) => {
 		contents : req.body.message
 	}).then((aiResponse) => {
 			res.status(200).send({
-				response : aiResponse.text
+				reply : aiResponse.text
 			})
 	})
 
