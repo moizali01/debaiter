@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "description": "",
   "main": "index.js",
+  "type": "module",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },
@@ -10,9 +11,10 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@google/genai": "^1.29.1",
     "dotenv": "^17.2.3",
     "express": "^5.1.0",
-    "lorem-ipsum": "^2.0.8",
+    "google-auth-library": "^10.5.0",
     "pino-http": "^11.0.0"
   }
 }

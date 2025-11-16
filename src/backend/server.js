@@ -1,49 +1,59 @@
-'use strict'
-const dotenv = require("dotenv")
-const lorem_ipsum = require("lorem-ipsum")
-const logger = require("pino-http")()
-const express = require("express")
+import dotenv from "dotenv"
+import logger from "pino-http"
+import express from "express"
+
+import { GoogleGenAI } from "@google/genai"
+import { GoogleAuth } from "google-auth-library"
 
 // Load environment variables from .env
 dotenv.config()
 
-const app = express()
+const modelId = process.env.MODEL_ID
+const projectId = process.env.PROJECT_ID
+const projectLocation = process.env.PROJECT_LOCATION
+const appCredentials = process.env.GOOGLE_APPLICATION_CREDENTIALS
+const appScope = process.env.GOOGLE_VERTEX_AI_SCOPE
 
-const lorem = new lorem_ipsum.LoremIpsum({
-	sentencesPerParagraph : {
-		max : 8,
-		min : 4,
-	},
-	wordsPerSentence : {
-		max : 16,
-		min : 4,
-	}
+const authClient = new GoogleAuth({
+	keyFile : appCredentials,
+	scopes : [appScope]
 })
+
+const aiClient = new GoogleGenAI({
+	vertexai : true,
+	project : projectId,
+	location : projectLocation,
+	googleAuthOptions : authClient
+})
+
+const app = express()
 
 // Application settings
 app.disable("x-powered-by")
 app.use(express.text()) // for parsing text/plain
 app.use(express.json()) // for parsing application/json
-app.use(express.urlencoded({extended : true})) // for parsing application/x-www-form-urlencoded
+app.use(express.urlencoded({ extended: true })) // for parsing application/x-www-form-urlencoded
 
-app.post("/promptAI",(req,res) => {
-	logger(req,res)
+app.post("/promptAI", (req, res) => {
+	logger(req, res)
 
-	res.send(lorem.generateParagraphs(5))
+	if(req.body === undefined || req.body.prompt === undefined || typeof req.body.prompt !== "string"){
+		res.status(403).send({
+			error : "Missing valid prompt in body"
+		})
+		return;
+	}
 
-	// const apiReq = new Request("http://localhost:8080/randomEndpoint",{
-	// 	method : "POST",
-	// 	headers : {
-	// 		"Content-Type" : "application/json"
-	// 	},
-	// 	body : JSON.stringify({
-	// 		name : "Deniz"
-	// 	})
-	// })
+	aiClient.models.generateContent({
+		model : modelId,
+		contents : req.body.prompt
+	}).then((aiResponse) => {
+			res.send({
+				response : aiResponse.text
+			})
+	})
 
-	// fetch(apiReq)
-	// .then((resp) => resp.text())
-	// .then((bodyText) => res.send(`This is what randomEndpoint said ${bodyText}`))
+	return;
 })
 
 app.listen(8080)
