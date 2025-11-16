@@ -142,3 +142,6 @@ vite.config.ts.timestamp-*
 
 # Ignore any GCP service account credential
 **/service-account.json
+
+# Ignore anything under the secret directory
+**/secret/**
