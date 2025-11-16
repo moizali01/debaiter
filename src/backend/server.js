@@ -1,6 +1,7 @@
 import dotenv from "dotenv"
 import logger from "pino-http"
 import express from "express"
+import cors from "cors"
 
 import { GoogleGenAI } from "@google/genai"
 import { GoogleAuth } from "google-auth-library"
@@ -34,10 +35,15 @@ app.use(express.text()) // for parsing text/plain
 app.use(express.json()) // for parsing application/json
 app.use(express.urlencoded({ extended: true })) // for parsing application/x-www-form-urlencoded
 
-app.post("/promptAI", (req, res) => {
-	logger(req, res)
+// Disabling CORS for now, until we get a domain for our app
+// app.use(cors({ origin: 'http://localhost:3000' }));
 
-	if(req.body === undefined || req.body.prompt === undefined || typeof req.body.prompt !== "string"){
+app.use(logger);
+
+app.post("/promptAI",(req,res) => {
+	logger(req,res)
+
+	if(req.body === undefined || req.body.message === undefined || typeof req.body.message !== "string"){
 		res.status(403).send({
 			error : "Missing valid prompt in body"
 		})
@@ -48,7 +54,7 @@ app.post("/promptAI", (req, res) => {
 		model : modelId,
 		contents : req.body.prompt
 	}).then((aiResponse) => {
-			res.send({
+			res.status(200).send({
 				response : aiResponse.text
 			})
 	})
@@ -56,4 +62,6 @@ app.post("/promptAI", (req, res) => {
 	return;
 })
 
-app.listen(8080)
+app.listen(8080, () => {
+	console.log("Server started on port 8080")
+})
