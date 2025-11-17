@@ -14,11 +14,14 @@
   "license": "ISC",
   "dependencies": {
     "@google/genai": "^1.29.1",
-    "google-auth-library": "^10.5.0",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
     "express": "^5.1.0",
+    "fs": "^0.0.1-security",
+    "google-auth-library": "^10.5.0",
+    "https": "^1.0.0",
     "nodemon": "^3.1.11",
-    "pino-http": "^11.0.0"
+    "pino-http": "^11.0.0",
+    "socket.io": "^4.8.1"
   }
 }
