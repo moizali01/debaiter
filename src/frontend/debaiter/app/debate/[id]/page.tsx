@@ -413,7 +413,7 @@ export default function DebatePage({ params }: { params: Promise<{ id: string }>
 	const handleSubmit = async (e: FormEvent) => {
 		e.preventDefault();
 		if (!userInput.trim() || isLoading || !isTurnActive) return;
-
+		toggleListening(); 
 		const currentInput = userInput;
 
 		// Add new user message to the UI
