@@ -20,9 +20,10 @@ interface IWindow extends Window {
 type Message = {
 	id: number | string;
 	text: string;
+	timestamp: number;
 };
 
-const MAX_TURNS = 8;
+const MAX_TURNS = 3;
 
 // // Hardcode session for local testing
 // const session = {
@@ -82,6 +83,9 @@ export default function DebatePage({ params }: { params: Promise<{ id: string }>
 
 	// Link Modal
 	const [modalState, setModalState] = useState<boolean>(false);
+
+	const [debateResult, setDebateResult] = useState<{ winner: string; reasoning: string } | null>(null);
+
 
 	// Opponent link
 	const opponentQueryParams = new URLSearchParams({
@@ -167,11 +171,35 @@ export default function DebatePage({ params }: { params: Promise<{ id: string }>
 		console.log("Debate finished. Sending transcript to Judge API...");
 
 		// Combine messages for transcript
+		console.log("User messages:", userMessages);
+		console.log("Opponent messages:", opponentMessages);
 		const fullTranscript = [...userMessages, ...opponentMessages].sort((a, b) =>
-			0
+			a.timestamp - b.timestamp
 		);
 
-		// await fetch('http://localhost:8080/judge', { body: JSON.stringify(fullTranscript) ... })
+		console.log("Transcript of chat:", fullTranscript);
+		try {
+			const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_HOSTNAME}/judgeAI`, {
+				body: JSON.stringify({ transcript: fullTranscript, topic: topic }),
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+			});
+
+			if (!response.ok) throw new Error('API Error');
+			const data = await response.json();
+			console.log("Judge API response:", data);
+
+			// --- CHANGE HERE: Set state instead of alert ---
+			setDebateResult({
+				winner: data.winner,
+				reasoning: data.reasoning
+			});
+
+			// alert(`Debate concluded! Winner: ${data.winner} Speaker.\n\nReason: ${data.reasoning}`);
+
+		} catch (error) {
+			console.error("Error sending transcript to Judge API:", error);
+		}
 	};
 
 	// -- Function to communicate with AI --
@@ -189,21 +217,26 @@ export default function DebatePage({ params }: { params: Promise<{ id: string }>
 			const aiReplyMessage: Message = {
 				id: crypto.randomUUID(),
 				text: data.reply,
+				timestamp: Date.now(),
 			};
 			setOpponentMessages((prev) => [...prev, aiReplyMessage]);
 
 			// Increment turn count for AI's move
-			setTurnCount(prev => {
-				const newCount = prev + 1;
-				if (newCount >= MAX_TURNS) {
-					concludeDebate();
-					return newCount;
-				}
-				// If not finished, it's User's turn now
-				setIsTurnActive(true);
-				setTimer(60);
-				return newCount;
-			});
+			// setTurnCount(prev => {
+			// 	const newCount = prev + 1;
+			// 	if (newCount >= MAX_TURNS) {
+			// 		// concludeDebate();
+			// 		return newCount;
+			// 	}
+			// 	// If not finished, it's User's turn now
+			// 	setIsTurnActive(true);
+			// 	setTimer(60);
+			// 	return newCount;
+			// });
+			setTurnCount(prev => prev + 1);
+			setIsTurnActive(true);
+    		setTimer(60);
+
 
 		} catch (error) {
 			console.error(error);
@@ -233,6 +266,13 @@ export default function DebatePage({ params }: { params: Promise<{ id: string }>
 		}
 	}, [opponentType, userRole, turnCount, topic]);
 
+
+	useEffect(() => {
+		// Check if we have reached the max turns
+		if (turnCount >= MAX_TURNS && !isDebateFinished) {
+			concludeDebate();
+		}
+	}, [turnCount, userMessages, opponentMessages]);
 
 	// If opponent type is human, setup a socket server
 	if (opponentType === "human") {
@@ -308,6 +348,7 @@ export default function DebatePage({ params }: { params: Promise<{ id: string }>
 						const newMessage: Message = {
 							id: `${from}-${timestamp}`,
 							text: text,
+							timestamp: timestamp,
 						};
 						setOpponentMessages(prev => [...prev, newMessage]);
 						setIsLoading(false);
@@ -373,22 +414,56 @@ export default function DebatePage({ params }: { params: Promise<{ id: string }>
 		// Timer finished
 		if (timer === 0) {
 			console.log("Time's up!");
+
 			setIsTurnActive(false);
 			setTimer(null);
+			setIsListening(false);
+
+            const timeoutMessage: Message = {
+                id: crypto.randomUUID(),
+                text: "(Time ran out - Turn skipped)",
+                timestamp: Date.now(),
+            };
+
+			setUserMessages((prev) => [...prev, timeoutMessage]);
 
 			// TODO : If there is text in the textbox or the user is currently
 			// recording, stop doing both of these things and submit what you have
 			//
 			// Or keep doing what we're doing right now which is to submit nothing
 			// and just switch turns to the opponent
-			const switchedTurn = userRole === 'affirmative' ? 'negative' : 'affirmative'
+			// const switchedTurn = userRole === 'affirmative' ? 'negative' : 'affirmative'
 
-			socketRef.current?.emit('turn-changed',{
-				currentTurn : switchedTurn,
-				startTimer : true,
-				reason : 'timer-expired'
+			// socketRef.current?.emit('turn-changed',{
+			// 	currentTurn : switchedTurn,
+			// 	startTimer : true,
+			// 	reason : 'timer-expired'
 
-			})
+			// })
+
+			if (opponentType === "human") {
+                // Send the message to the opponent so they know you timed out
+                socketRef.current?.emit('send-message', {
+                    debateId,
+                    message: "(Time ran out - Turn skipped)",
+                    role: userRole,
+                    opponentType
+                });
+
+                // Switch the turn logic
+                const switchedTurn = userRole === 'affirmative' ? 'negative' : 'affirmative';
+                
+                socketRef.current?.emit('turn-changed', {
+                    currentTurn: switchedTurn,
+                    startTimer: true,
+                    reason: 'timer-expired'
+                });
+            } else {
+                // AI Opponent
+                // We send a system prompt to the AI representing the user's silence
+                // This ensures the AI responds and the flow continues
+                fetchAIResponse("The user ran out of time and did not provide an argument. Please continue the debate by pointing out their silence or continuing your point.");
+            }
 
 			return;
 		}
@@ -412,6 +487,7 @@ export default function DebatePage({ params }: { params: Promise<{ id: string }>
 		const newUserMessage: Message = {
 			id: crypto.randomUUID(),
 			text: currentInput,
+			timestamp: Date.now(),
 		};
 		setUserMessages((prev) => [...prev, newUserMessage]);
 
@@ -445,6 +521,7 @@ export default function DebatePage({ params }: { params: Promise<{ id: string }>
 			const errorMessage: Message = {
 				id: crypto.randomUUID(),
 				text: 'Error getting response from LLM or other user. Check console.',
+				timestamp: Date.now(),
 			};
 			setOpponentMessages((prev) => [...prev, errorMessage]);
 
@@ -611,7 +688,51 @@ export default function DebatePage({ params }: { params: Promise<{ id: string }>
 					</div>
 				</section>
 			</main>
+			{/* --- Result Overlay --- */}
+			{debateResult && (
+				<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4 backdrop-blur-sm animate-in fade-in duration-300">
+					<div className="w-full max-w-2xl overflow-hidden rounded-2xl bg-white shadow-2xl dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800">
+						
+						{/* Header */}
+						<div className="bg-zinc-50 p-6 text-center dark:bg-zinc-800/50 border-b border-zinc-100 dark:border-zinc-800">
+							<h3 className="text-sm font-medium uppercase tracking-wider text-zinc-500">
+								Debate Concluded
+							</h3>
+							<h2 className="mt-2 text-3xl font-bold text-zinc-900 dark:text-white">
+								Winner: <span className="text-blue-600">{debateResult.winner}</span>
+							</h2>
+						</div>
+
+						{/* Body */}
+						<div className="p-8">
+							<h4 className="mb-3 font-semibold text-zinc-900 dark:text-zinc-100">
+								Judge's Reasoning:
+							</h4>
+							<div className="max-h-60 overflow-y-auto rounded-lg bg-zinc-50 p-4 text-zinc-700 dark:bg-zinc-950 dark:text-zinc-300 leading-relaxed">
+								{debateResult.reasoning}
+							</div>
+						</div>
+
+						{/* Footer Actions */}
+						<div className="flex gap-3 bg-zinc-50 p-6 dark:bg-zinc-800/50 border-t border-zinc-100 dark:border-zinc-800 justify-end">
+							<button 
+								onClick={() => setDebateResult(null)}
+								className="rounded-lg px-4 py-2 text-sm font-medium text-zinc-600 hover:bg-zinc-200 dark:text-zinc-400 dark:hover:bg-zinc-800"
+							>
+								Close & View Chat
+							</button>
+							<a 
+								href="/" // Or wherever your home/dashboard is
+								className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+							>
+								Return Home
+							</a>
+						</div>
+					</div>
+				</div>
+			)}
 		</div>
+
 	);
 }
 
