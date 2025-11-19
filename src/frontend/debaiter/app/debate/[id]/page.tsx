@@ -108,60 +108,68 @@ export default function DebatePage({ params }: { params: Promise<{ id: string }>
 	// -- Speech to text setup --
 	const [isListening, setIsListening] = useState(false);
 	const recognitionRef = useRef<any>(null);
+	const sttLastResultIndexRef = useRef<number>(0);
 
 	const toggleListening = () => {
+		// if listening stop
 		if (isListening) {
-			recognitionRef.current?.stop();
-			setIsListening(false);
-			return;
+		  recognitionRef.current?.stop();
+		  setIsListening(false);
+		  return;
 		}
-
-		const { webkitSpeechRecognition } = window as unknown as IWindow;
-
-		if (!webkitSpeechRecognition) {
-			alert("Your browser does not support Speech to Text. Please use Google Chrome.");
-			return;
+	  
+		const { webkitSpeechRecognition, SpeechRecognition } = window as unknown as IWindow;
+		const SpeechRec = webkitSpeechRecognition || SpeechRecognition;
+	  
+		if (!SpeechRec) {
+		  alert("Your browser does not support Speech to Text. Please use Google Chrome.");
+		  return;
 		}
-
-		const recognition = new webkitSpeechRecognition();
+	  
+		const recognition = new SpeechRec();
 		recognition.continuous = true;
-		recognition.interimResults = true; // Show results while speaking
-		recognition.lang = 'en-US';
-
-		recognition.onstart = () => {
-			setIsListening(true);
-		};
-
+		recognition.interimResults = false; 
+		recognition.lang = "en-US";
+	  
+		// Start fresh for this speech session
+		sttLastResultIndexRef.current = 0;
+	  
 		recognition.onresult = (event: any) => {
-			let finalTranscript = '';
-
-			// Loop through results to build the transcript
-			for (let i = event.resultIndex; i < event.results.length; ++i) {
-				if (event.results[i].isFinal) {
-					finalTranscript += event.results[i][0].transcript;
-				} else {
-					finalTranscript += event.results[i][0].transcript;
-				}
+		  let newFinalChunk = "";
+	  
+		  // Only process *new* results that we haven't seen yet
+		  for (let i = sttLastResultIndexRef.current; i < event.results.length; i++) {
+			const result = event.results[i];
+			if (result.isFinal) {
+			  newFinalChunk += result[0].transcript + " ";
 			}
-
-			// Update the userInput state
-			// Note: This replaces current input. If you want to append, use setUserInput(prev => prev + finalTranscript)
-			console.log("Speech to Text Interim Transcript:", finalTranscript);
-			setUserInput(finalTranscript);
+		  }
+	  
+		  // Mark all results as processed
+		  sttLastResultIndexRef.current = event.results.length;
+	  
+		  // Append just the new final text to whatever is currently in the box
+		  if (newFinalChunk.trim().length > 0) {
+			setUserInput(prev => (prev + " " + newFinalChunk).trim());
+		  }
 		};
-
+	  
 		recognition.onend = () => {
-			setIsListening(false);
+		  setIsListening(false);
 		};
-
+	  
 		recognition.onerror = (event: any) => {
-			console.error("Speech recognition error", event.error);
-			setIsListening(false);
+		  console.error("Speech recognition error", event.error);
+		  setIsListening(false);
 		};
-
+	  
 		recognitionRef.current = recognition;
+		setIsListening(true);
 		recognition.start();
-	};
+	  };
+	  
+	  
+	  
 
 	// -- JUDGE LOGIC --
 	const concludeDebate = async () => {
@@ -480,7 +488,7 @@ export default function DebatePage({ params }: { params: Promise<{ id: string }>
 	const handleSubmit = async (e: FormEvent) => {
 		e.preventDefault();
 		if (!userInput.trim() || isLoading || !isTurnActive) return;
-
+		toggleListening(); 
 		const currentInput = userInput;
 
 		// Add new user message to the UI
