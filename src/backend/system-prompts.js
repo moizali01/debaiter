@@ -326,7 +326,7 @@ export const debatePrompts = {
   defaultJudgePrompt: (topic) => generateJudgeSystemPrompt(topic),
 };
 
-/**
+/*
  * USAGE EXAMPLES
  *
  * Example 1: Standard debate argument
