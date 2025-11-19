@@ -372,10 +372,23 @@ export default function DebatePage({ params }: { params: Promise<{ id: string }>
 
 		// Timer finished
 		if (timer === 0) {
+			console.log("Time's up!");
 			setIsTurnActive(false);
 			setTimer(null);
-			console.log("Time's up!");
 
+			// TODO : If there is text in the textbox or the user is currently
+			// recording, stop doing both of these things and submit what you have
+			//
+			// Or keep doing what we're doing right now which is to submit nothing
+			// and just switch turns to the opponent
+			const switchedTurn = userRole === 'affirmative' ? 'negative' : 'affirmative'
+
+			socketRef.current?.emit('turn-changed',{
+				currentTurn : switchedTurn,
+				startTimer : true,
+				reason : 'timer-expired'
+
+			})
 
 			return;
 		}
