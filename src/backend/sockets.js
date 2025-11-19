@@ -1,13 +1,21 @@
 import dotenv from "dotenv"
 import express from "express"
-import http from "http"
+import https from "https"
+import fs from "fs"
 import { Server } from "socket.io"
 
 // Load environment variables from .env
 dotenv.config()
 
 const app = express()
-const server = http.createServer(app)
+
+const httpsOptions = {
+	key : fs.readFileSync("/etc/letsencrypt/live/socket.debaiter.app/privkey.pem"),
+	cert : fs.readFileSync("/etc/letsencrypt/live/socket.debaiter.app/cert.pem"),
+	ca : fs.readFileSync("/etc/letsencrypt/live/socket.debaiter.app/chain.pem"),
+}
+
+const server = https.createServer(httpsOptions,app)
 
 const port = process.env.PORT
 
