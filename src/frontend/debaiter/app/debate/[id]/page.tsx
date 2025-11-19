@@ -24,13 +24,13 @@ type Message = {
 
 const MAX_TURNS = 8;
 
-// Hardcode session for local testing
-const session = {
-	user: {
-		email: "dcaglar2@uic.edu",
-		name: "Deniz Caglar"
-	}
-}
+// // Hardcode session for local testing
+// const session = {
+// 	user: {
+// 		email: "dcaglar2@uic.edu",
+// 		name: "Deniz Caglar"
+// 	}
+// }
 
 type DebateParams = {
 	topic: string,
@@ -41,7 +41,7 @@ type DebateParams = {
 export default function DebatePage({ params }: { params: Promise<{ id: string }> }) {
 
 	// Get current session
-	// const { data: session } = useSession();
+	const { data: session } = useSession();
 
 	const searchParams = useSearchParams();
 	const topic = searchParams.get('topic') || 'Random topic here';

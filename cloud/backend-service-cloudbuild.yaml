@@ -6,6 +6,13 @@ steps:
         gcloud secrets versions access latest --secret="$_SECRET_NAME" >
         src/backend/$_SECRET_OUT_FILE
     entrypoint: bash
+  - name: gcr.io/cloud-builders/gcloud
+    args:
+      - '-c'
+      - >-
+        gcloud secrets versions access latest --secret="$_ENV_SECRET_NAME" >
+        src/backend/.env
+    entrypoint: bash
   - name: gcr.io/k8s-skaffold/pack
     env:
       - GOOGLE_ENTRYPOINT=$_ENTRYPOINT
