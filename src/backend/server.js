@@ -14,6 +14,7 @@ const projectId = process.env.PROJECT_ID
 const projectLocation = process.env.PROJECT_LOCATION
 const appCredentials = process.env.GOOGLE_APPLICATION_CREDENTIALS
 const appScope = process.env.GOOGLE_VERTEX_AI_SCOPE
+const port = process.env.PORT
 
 const authClient = new GoogleAuth({
 	keyFile : appCredentials,
@@ -60,6 +61,6 @@ app.post("/promptAI",(req,res) => {
 	return;
 })
 
-app.listen(8080, () => {
-	console.log("Server started on port 8080")
+app.listen(port, () => {
+	console.log(`Server started on port ${port}`)
 })

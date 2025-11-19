@@ -9,6 +9,8 @@ dotenv.config()
 const app = express()
 const server = http.createServer(app)
 
+const port = process.env.PORT
+
 // Initialize Socket.IO with CORS
 const io = new Server(server, {
   cors: {
@@ -199,4 +201,6 @@ io.on('connection', (socket) => {
   })
 })
 
-server.listen(8080)
+server.listen(port,() => {
+	console.log(`Sockets server listening on ${port}`)
+})

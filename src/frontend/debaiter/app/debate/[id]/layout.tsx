@@ -9,9 +9,9 @@ export default async function DebateLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const session = await getServerSession();
-  if (!session || !session.user) {
-    redirect('/');
-  }
+  // const session = await getServerSession();
+  // if (!session || !session.user) {
+  //   redirect('/');
+  // }
   return <>{children}</>;
 }
