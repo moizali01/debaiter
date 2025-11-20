@@ -213,10 +213,15 @@ export default function DebatePage({ params }: { params: Promise<{ id: string }>
 	// -- Function to communicate with AI --
 	const fetchAIResponse = async (promptMessage: string) => {
 		try {
+
+			const fullTranscript = [...userMessages, ...opponentMessages].sort((a, b) =>
+				a.timestamp - b.timestamp
+			);
+
 			const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_HOSTNAME}/promptAI`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ message: promptMessage, topic: topic, role: opponentRole }),
+				body: JSON.stringify({ message: promptMessage, topic: topic, role: opponentRole, transcript: fullTranscript }),
 			});
 
 			if (!response.ok) throw new Error('API Error');
@@ -229,18 +234,6 @@ export default function DebatePage({ params }: { params: Promise<{ id: string }>
 			};
 			setOpponentMessages((prev) => [...prev, aiReplyMessage]);
 
-			// Increment turn count for AI's move
-			// setTurnCount(prev => {
-			// 	const newCount = prev + 1;
-			// 	if (newCount >= MAX_TURNS) {
-			// 		// concludeDebate();
-			// 		return newCount;
-			// 	}
-			// 	// If not finished, it's User's turn now
-			// 	setIsTurnActive(true);
-			// 	setTimer(60);
-			// 	return newCount;
-			// });
 			setTurnCount(prev => prev + 1);
 			setIsTurnActive(true);
     		setTimer(60);
