@@ -45,193 +45,72 @@ app.use(express.urlencoded({ extended: true })); // for parsing application/x-ww
 // Add CORS headers, only allow our frontend app
 app.use(cors({ origin: process.env.FRONTEND_HOSTNAME }));
 
-// Logging middleware
-const pinoLogger = logger();
-app.use(pinoLogger);
+app.post("/promptAI",(req,res) => {
+	logger(req,res)
+	console.log("Received request to /promptAI:", req.body)
+	const topic = req.body.topic || "General"
+	const role = req.body.role || "None"
 
-// Health check endpoint
-app.get("/health", (req, res) => {
-  res.status(200).send({ status: "OK", message: "Server is running" });
-});
+	const systemPrompt = `You are a debating AI. You will debate the topic of "${topic}" taking the role of "${role}" speaker. Provide well thought out and balanced arguments.`
 
-/**
- * POST /promptAI
- * Generate a debate argument from AI
- *
- * Request body:
- * {
- *   "message": "string - the argument or prompt",
- *   "topic": "string - optional, the debate topic",
- *   "role": "string - optional, the speaker role (affirmative/negative)"
- * }
- *
- * Response:
- * {
- *   "reply": "string - the AI generated argument"
- * }
- */
-app.post("/promptAI", async (req, res) => {
-  try {
-    console.log("Received request to /promptAI:", req.body);
+	if(req.body === undefined || req.body.message === undefined || typeof req.body.message !== "string"){
+		res.status(403).send({
+			error : "Missing valid prompt in body"
+		})
+		return;
+	}
 
-    // Validate request body
-    if (!req.body || typeof req.body.message !== "string") {
-      return res.status(400).json({
-        error:
-          "Missing or invalid 'message' field in request body. Expected string.",
-      });
-    }
+	aiClient.models.generateContent({
+		model : modelId,
+		contents : req.body.message,
+		config : {
+			systemInstruction : systemPrompt,
+		}
+	}).then((aiResponse) => {
+			res.status(200).send({
+				reply : aiResponse.text
+			})
+	})
 
-    const topic = req.body.topic || "General";
-    const role = req.body.role || "Debater";
-    const message = req.body.message;
+	return;
+})
 
-    // Use the system prompt generator function
-    const systemPrompt = generateDebateSystemPrompt(topic, role);
+app.post("/judgeAI",(req,res) => {
+	logger(req,res)
+	console.log("Received request to /judge:", req.body)
 
-    console.log(`Generating content for topic: "${topic}", role: "${role}"`);
+	const transcript = req.body.transcript
+	console.log("Transcript:", transcript)
+	const topic = req.body.topic || "General"
 
-    const aiResponse = await aiClient.models.generateContent({
-      model: modelId,
-      contents: message,
-      config: {
-        systemInstruction: systemPrompt,
-      },
-    });
+	console.log("Debate Transcript:", transcript)
 
-    if (!aiResponse || !aiResponse.text) {
-      return res.status(500).json({
-        error: "AI service did not return a valid response",
-      });
-    }
+	const systemPrompt = `You are an expert debate judge. You will judge the debate on the topic of "${topic}". Provide a fair and unbiased evaluation of the debate based on the transcript provided. Your response must be a valid JSON object with the following fields: winner (string), reasoning (string), score (number between 0 and 100).`
 
-    console.log("AI response generated successfully");
-    return res.status(200).json({
-      reply: aiResponse.text,
-    });
-  } catch (error) {
-    console.error("Error in /promptAI endpoint:", error.message);
-    return res.status(500).json({
-      error: "Failed to generate AI response",
-      details:
-        process.env.NODE_ENV === "development" ? error.message : undefined,
-    });
-  }
-});
+	aiClient.models.generateContent({
+		model : modelId,
+		contents : JSON.stringify(transcript),
+		config : {
+			systemInstruction : systemPrompt,
+			responseMimeType: "application/json"
+		}
+	}).then((aiResponse) => {
+			// parse the aiResponse.text as json
+			console.log("Judgement JSON:", aiResponse.text);
+			const judgementJson = JSON.parse(aiResponse.text);
+			// console.log("Judgement JSON:", judgementJson);
+			res.status(200).send({
+				winner : judgementJson.winner,
+				reasoning : judgementJson.reasoning,
+				score : judgementJson.score
+			})
+	})
 
-/**
- * POST /judgeAI
- * Get AI judgment on a debate
- *
- * Request body:
- * {
- *   "transcript": "array or string - the debate messages/transcript",
- *   "topic": "string - optional, the debate topic"
- * }
- *
- * Response:
- * {
- *   "winner": "string - which side won (affirmative/negative)",
- *   "reasoning": "string - explanation of the judgment",
- *   "score": "number - score out of 100"
- * }
- */
-app.post("/judgeAI", async (req, res) => {
-  try {
-    console.log("Received request to /judgeAI:", req.body);
+	return;
 
-    // Validate request body
-    if (!req.body || !req.body.transcript) {
-      return res.status(400).json({
-        error: "Missing 'transcript' field in request body",
-      });
-    }
+})
 
-    const transcript = req.body.transcript;
-    const topic = req.body.topic || "General";
 
-    // Convert transcript to string if it's an array
-    let transcriptStr =
-      typeof transcript === "string"
-        ? transcript
-        : JSON.stringify(transcript, null, 2);
-
-    console.log("Debate Transcript:", transcriptStr);
-
-    // Use the system prompt generator function
-    const systemPrompt = generateJudgeSystemPrompt(topic);
-
-    console.log("Sending request to AI for judgment...");
-
-    const aiResponse = await aiClient.models.generateContent({
-      model: modelId,
-      contents: `Please judge this debate:\n\n${transcriptStr}`,
-      config: {
-        systemInstruction: systemPrompt,
-        responseMimeType: "application/json",
-      },
-    });
-
-    if (!aiResponse || !aiResponse.text) {
-      return res.status(500).json({
-        error: "AI service did not return a valid response",
-      });
-    }
-
-    console.log("Raw AI response:", aiResponse.text);
-
-    // Parse the JSON response from AI
-    let judgmentJson;
-    try {
-      judgmentJson = JSON.parse(aiResponse.text);
-    } catch (parseError) {
-      console.error("Failed to parse AI response as JSON:", aiResponse.text);
-      return res.status(500).json({
-        error: "AI response was not valid JSON",
-        details:
-          process.env.NODE_ENV === "development" ? aiResponse.text : undefined,
-      });
-    }
-
-    // Validate the parsed response has required fields
-    if (
-      !judgmentJson.winner ||
-      !judgmentJson.reasoning ||
-      judgmentJson.score === undefined
-    ) {
-      console.error("AI response missing required fields:", judgmentJson);
-      return res.status(500).json({
-        error: "AI response missing required fields (winner, reasoning, score)",
-      });
-    }
-
-    console.log("Judgment JSON parsed successfully:", judgmentJson);
-
-    return res.status(200).json({
-      winner: judgmentJson.winner,
-      reasoning: judgmentJson.reasoning,
-      score: judgmentJson.score,
-    });
-  } catch (error) {
-    console.error("Error in /judgeAI endpoint:", error.message);
-    return res.status(500).json({
-      error: "Failed to generate AI judgment",
-      details:
-        process.env.NODE_ENV === "development" ? error.message : undefined,
-    });
-  }
-});
-
-// Error handling for undefined routes
-app.use((req, res) => {
-  res.status(404).json({
-    error: "Route not found",
-    path: req.path,
-    method: req.method,
-  });
-});
-
-// Start server
 app.listen(port, () => {
   console.log(`Server started on port ${port}`);
   console.log(`Environment: ${process.env.NODE_ENV || "development"}`);
