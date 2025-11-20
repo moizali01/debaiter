@@ -25,13 +25,13 @@ type Message = {
 
 const MAX_TURNS = 3;
 
-// // Hardcode session for local testing
-// const session = {
-// 	user: {
-// 		email: "dcaglar2@uic.edu",
-// 		name: "Deniz Caglar"
-// 	}
-// }
+// Hardcode session for local testing
+const session = {
+	user: {
+		email: "dcaglar2@uic.edu",
+		name: "Deniz Caglar"
+	}
+}
 
 type DebateParams = {
 	topic: string,
@@ -42,7 +42,7 @@ type DebateParams = {
 export default function DebatePage({ params }: { params: Promise<{ id: string }> }) {
 
 	// Get current session
-	const { data: session } = useSession();
+	// const { data: session } = useSession();
 
 	const searchParams = useSearchParams();
 	const topic = searchParams.get('topic') || 'Random topic here';
@@ -74,7 +74,9 @@ export default function DebatePage({ params }: { params: Promise<{ id: string }>
 	const [timer, setTimer] = useState<number | null>(null);
 	const [isTurnActive, setIsTurnActive] = useState(userRole === 'affirmative');
 
-	const [turnCount, setTurnCount] = useState(0);
+	const [userTurnCount, setUserTurnCount] = useState(0);
+	const [opponentTurnCount, setOpponentTurnCount] = useState(0);
+
 	const [isDebateFinished, setIsDebateFinished] = useState(false);
 
 	// Mock data to show the layout.
@@ -113,63 +115,63 @@ export default function DebatePage({ params }: { params: Promise<{ id: string }>
 	const toggleListening = () => {
 		// if listening stop
 		if (isListening) {
-		  recognitionRef.current?.stop();
-		  setIsListening(false);
-		  return;
+			recognitionRef.current?.stop();
+			setIsListening(false);
+			return;
 		}
-	  
+
 		const { webkitSpeechRecognition, SpeechRecognition } = window as unknown as IWindow;
 		const SpeechRec = webkitSpeechRecognition || SpeechRecognition;
-	  
+
 		if (!SpeechRec) {
-		  alert("Your browser does not support Speech to Text. Please use Google Chrome.");
-		  return;
+			alert("Your browser does not support Speech to Text. Please use Google Chrome.");
+			return;
 		}
-	  
+
 		const recognition = new SpeechRec();
 		recognition.continuous = true;
-		recognition.interimResults = false; 
+		recognition.interimResults = false;
 		recognition.lang = "en-US";
-	  
+
 		// Start fresh for this speech session
 		sttLastResultIndexRef.current = 0;
-	  
+
 		recognition.onresult = (event: any) => {
-		  let newFinalChunk = "";
-	  
-		  // Only process *new* results that we haven't seen yet
-		  for (let i = sttLastResultIndexRef.current; i < event.results.length; i++) {
-			const result = event.results[i];
-			if (result.isFinal) {
-			  newFinalChunk += result[0].transcript + " ";
+			let newFinalChunk = "";
+
+			// Only process *new* results that we haven't seen yet
+			for (let i = sttLastResultIndexRef.current; i < event.results.length; i++) {
+				const result = event.results[i];
+				if (result.isFinal) {
+					newFinalChunk += result[0].transcript + " ";
+				}
 			}
-		  }
-	  
-		  // Mark all results as processed
-		  sttLastResultIndexRef.current = event.results.length;
-	  
-		  // Append just the new final text to whatever is currently in the box
-		  if (newFinalChunk.trim().length > 0) {
-			setUserInput(prev => (prev + " " + newFinalChunk).trim());
-		  }
+
+			// Mark all results as processed
+			sttLastResultIndexRef.current = event.results.length;
+
+			// Append just the new final text to whatever is currently in the box
+			if (newFinalChunk.trim().length > 0) {
+				setUserInput(prev => (prev + " " + newFinalChunk).trim());
+			}
 		};
-	  
+
 		recognition.onend = () => {
-		  setIsListening(false);
+			setIsListening(false);
 		};
-	  
+
 		recognition.onerror = (event: any) => {
-		  console.error("Speech recognition error", event.error);
-		  setIsListening(false);
+			console.error("Speech recognition error", event.error);
+			setIsListening(false);
 		};
-	  
+
 		recognitionRef.current = recognition;
 		setIsListening(true);
 		recognition.start();
-	  };
-	  
-	  
-	  
+	};
+
+
+
 
 	// -- JUDGE LOGIC --
 	const concludeDebate = async () => {
@@ -178,35 +180,51 @@ export default function DebatePage({ params }: { params: Promise<{ id: string }>
 		setTimer(null);
 		console.log("Debate finished. Sending transcript to Judge API...");
 
-		// Combine messages for transcript
-		console.log("User messages:", userMessages);
-		console.log("Opponent messages:", opponentMessages);
-		const fullTranscript = [...userMessages, ...opponentMessages].sort((a, b) =>
-			a.timestamp - b.timestamp
-		);
+		// Only send the transcript for judgment
+		if (opponentType === "ai" ||  // if your against an AI
+			(opponentType === "human" && userRole === "affirmative") // or if you're the affirmative user. This prevents double sending of judgment
+		) {
 
-		console.log("Transcript of chat:", fullTranscript);
-		try {
-			const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_HOSTNAME}/judgeAI`, {
-				body: JSON.stringify({ transcript: fullTranscript, topic: topic }),
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-			});
+			// Combine messages for transcript
+			console.log("User messages:", userMessages);
+			console.log("Opponent messages:", opponentMessages);
+			const fullTranscript = [...userMessages, ...opponentMessages].sort((a, b) =>
+				a.timestamp - b.timestamp
+			);
 
-			if (!response.ok) throw new Error('API Error');
-			const data = await response.json();
-			console.log("Judge API response:", data);
+			console.log("Transcript of chat:", fullTranscript);
+			try {
+				const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_HOSTNAME}/judgeAI`, {
+					body: JSON.stringify({ transcript: fullTranscript, topic: topic }),
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+				});
 
-			// --- CHANGE HERE: Set state instead of alert ---
-			setDebateResult({
-				winner: data.winner,
-				reasoning: data.reasoning
-			});
+				if (!response.ok) throw new Error('API Error');
+				const data = await response.json();
+				console.log("Judge API response:", data);
 
-			// alert(`Debate concluded! Winner: ${data.winner} Speaker.\n\nReason: ${data.reasoning}`);
+				// --- CHANGE HERE: Set state instead of alert ---
+				setDebateResult({
+					winner: data.winner,
+					reasoning: data.reasoning,
+				});
 
-		} catch (error) {
-			console.error("Error sending transcript to Judge API:", error);
+				// If you're against a human, also alert that user 
+				if(opponentType === "human"){
+					socketRef.current?.emit('debate-result',{
+						debateId,
+						winner : data.winner,
+						reasoning : data.reasoning,
+						from : userRole
+					})
+				}
+
+				// alert(`Debate concluded! Winner: ${data.winner} Speaker.\n\nReason: ${data.reasoning}`);
+
+			} catch (error) {
+				console.error("Error sending transcript to Judge API:", error);
+			}
 		}
 	};
 
@@ -241,9 +259,9 @@ export default function DebatePage({ params }: { params: Promise<{ id: string }>
 			// 	setTimer(60);
 			// 	return newCount;
 			// });
-			setTurnCount(prev => prev + 1);
+			setOpponentTurnCount(prev => prev + 1);
 			setIsTurnActive(true);
-    		setTimer(60);
+			setTimer(60);
 
 
 		} catch (error) {
@@ -264,7 +282,7 @@ export default function DebatePage({ params }: { params: Promise<{ id: string }>
 		const isUserNegative = userRole === 'negative';
 
 		// must be AI opponent, user must be negativee, Start of game, Not already fired
-		if (isAI && isUserNegative && turnCount === 0 && !hasStartedRef.current) {
+		if (isAI && isUserNegative && opponentTurnCount === 0 && !hasStartedRef.current) {
 
 			console.log("Triggering AI opening argument...");
 			hasStartedRef.current = true; // Mark as started so it doesn't fire twice
@@ -272,15 +290,15 @@ export default function DebatePage({ params }: { params: Promise<{ id: string }>
 
 			fetchAIResponse(`You are the affirmative speaker. Please provide your opening argument for the topic: ${topic}`);
 		}
-	}, [opponentType, userRole, turnCount, topic]);
+	}, [opponentType, userRole, opponentTurnCount, topic]);
 
 
 	useEffect(() => {
 		// Check if we have reached the max turns
-		if (turnCount >= MAX_TURNS && !isDebateFinished) {
+		if (userTurnCount >= MAX_TURNS && opponentTurnCount >= MAX_TURNS && !isDebateFinished) {
 			concludeDebate();
 		}
-	}, [turnCount, userMessages, opponentMessages]);
+	}, [userTurnCount, opponentTurnCount, userMessages, opponentMessages]);
 
 	// If opponent type is human, setup a socket server
 	if (opponentType === "human") {
@@ -289,7 +307,7 @@ export default function DebatePage({ params }: { params: Promise<{ id: string }>
 		useEffect(() => {
 			if (!session?.user) return;
 
-			if (socketRef.current === null || socketRef.current === undefined ) {
+			if (socketRef.current === null || socketRef.current === undefined) {
 				// Only setup a connection if one doesn't exist already
 				socketRef.current = io(process.env.NEXT_PUBLIC_SOCKET_HOSTNAME, {
 					transports: ['websocket', 'polling']
@@ -360,6 +378,7 @@ export default function DebatePage({ params }: { params: Promise<{ id: string }>
 						};
 						setOpponentMessages(prev => [...prev, newMessage]);
 						setIsLoading(false);
+						setOpponentTurnCount(prev => prev + 1); // Increment turn count whenever you receive a new message from the opponent
 					}
 				});
 
@@ -367,6 +386,7 @@ export default function DebatePage({ params }: { params: Promise<{ id: string }>
 				socketRef.current.on('turn-changed', ({ currentTurn, startTimer, reason }) => {
 					const isMyTurn = currentTurn === userRole;
 					setIsTurnActive(isMyTurn);
+
 
 					if (isMyTurn && startTimer) {
 						setTimer(60);
@@ -403,6 +423,27 @@ export default function DebatePage({ params }: { params: Promise<{ id: string }>
 					alert(message);
 				});
 
+				socketRef.current.on('debate-result',({winner,reasoning,from}) => {
+					console.log("Received debate result")
+
+					if(from !== userRole){
+						// If this result is from the opposite user,
+						// that means the debate must be over.
+						// Show the final screen. Set turns to false
+						setIsLoading(false)
+						setIsTurnActive(false)
+						setTimer(null)
+						setIsTyping(false)
+						setUserInput('')
+						setIsDebateFinished(true)
+
+						setDebateResult({
+							winner : winner,
+							reasoning : reasoning
+						})
+					}
+				})
+
 			}
 
 
@@ -427,13 +468,16 @@ export default function DebatePage({ params }: { params: Promise<{ id: string }>
 			setTimer(null);
 			setIsListening(false);
 
-            const timeoutMessage: Message = {
-                id: crypto.randomUUID(),
-                text: "(Time ran out - Turn skipped)",
-                timestamp: Date.now(),
-            };
+			const timeoutMessage: Message = {
+				id: crypto.randomUUID(),
+				text: "(Time ran out - Turn skipped)",
+				timestamp: Date.now(),
+			};
 
 			setUserMessages((prev) => [...prev, timeoutMessage]);
+
+			// Increment your turn count
+			setUserTurnCount(prev => prev + 1);
 
 			// TODO : If there is text in the textbox or the user is currently
 			// recording, stop doing both of these things and submit what you have
@@ -450,28 +494,29 @@ export default function DebatePage({ params }: { params: Promise<{ id: string }>
 			// })
 
 			if (opponentType === "human") {
-                // Send the message to the opponent so they know you timed out
-                socketRef.current?.emit('send-message', {
-                    debateId,
-                    message: "(Time ran out - Turn skipped)",
-                    role: userRole,
-                    opponentType
-                });
+				// Send the message to the opponent so they know you timed out
+				socketRef.current?.emit('send-message', {
+					debateId,
+					message: "(Time ran out - Turn skipped)",
+					role: userRole,
+					opponentType
+				});
 
-                // Switch the turn logic
-                const switchedTurn = userRole === 'affirmative' ? 'negative' : 'affirmative';
-                
-                socketRef.current?.emit('turn-changed', {
-                    currentTurn: switchedTurn,
-                    startTimer: true,
-                    reason: 'timer-expired'
-                });
-            } else {
-                // AI Opponent
-                // We send a system prompt to the AI representing the user's silence
-                // This ensures the AI responds and the flow continues
-                fetchAIResponse("The user ran out of time and did not provide an argument. Please continue the debate by pointing out their silence or continuing your point.");
-            }
+
+				// Switch the turn logic
+				const switchedTurn = userRole === 'affirmative' ? 'negative' : 'affirmative';
+
+				socketRef.current?.emit('turn-changed', {
+					currentTurn: switchedTurn,
+					startTimer: true,
+					reason: 'timer-expired'
+				});
+			} else {
+				// AI Opponent
+				// We send a system prompt to the AI representing the user's silence
+				// This ensures the AI responds and the flow continues
+				fetchAIResponse("The user ran out of time and did not provide an argument. Please continue the debate by pointing out their silence or continuing your point.");
+			}
 
 			return;
 		}
@@ -488,7 +533,7 @@ export default function DebatePage({ params }: { params: Promise<{ id: string }>
 	const handleSubmit = async (e: FormEvent) => {
 		e.preventDefault();
 		if (!userInput.trim() || isLoading || !isTurnActive) return;
-		toggleListening(); 
+		toggleListening();
 		const currentInput = userInput;
 
 		// Add new user message to the UI
@@ -498,6 +543,9 @@ export default function DebatePage({ params }: { params: Promise<{ id: string }>
 			timestamp: Date.now(),
 		};
 		setUserMessages((prev) => [...prev, newUserMessage]);
+
+		// Increment your turn count
+		setUserTurnCount(prev => prev + 1);
 
 		// Clear input and set loading state
 		setUserInput('');
@@ -520,6 +568,7 @@ export default function DebatePage({ params }: { params: Promise<{ id: string }>
 					opponentType
 				});
 
+
 			} else {
 				// AI opponent
 				await fetchAIResponse(currentInput);
@@ -532,6 +581,7 @@ export default function DebatePage({ params }: { params: Promise<{ id: string }>
 				timestamp: Date.now(),
 			};
 			setOpponentMessages((prev) => [...prev, errorMessage]);
+			setOpponentTurnCount(prev => prev + 1)
 
 			setIsTurnActive(true);
 		} finally {
@@ -700,7 +750,7 @@ export default function DebatePage({ params }: { params: Promise<{ id: string }>
 			{debateResult && (
 				<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4 backdrop-blur-sm animate-in fade-in duration-300">
 					<div className="w-full max-w-2xl overflow-hidden rounded-2xl bg-white shadow-2xl dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800">
-						
+
 						{/* Header */}
 						<div className="bg-zinc-50 p-6 text-center dark:bg-zinc-800/50 border-b border-zinc-100 dark:border-zinc-800">
 							<h3 className="text-sm font-medium uppercase tracking-wider text-zinc-500">
@@ -723,13 +773,13 @@ export default function DebatePage({ params }: { params: Promise<{ id: string }>
 
 						{/* Footer Actions */}
 						<div className="flex gap-3 bg-zinc-50 p-6 dark:bg-zinc-800/50 border-t border-zinc-100 dark:border-zinc-800 justify-end">
-							<button 
+							<button
 								onClick={() => setDebateResult(null)}
 								className="rounded-lg px-4 py-2 text-sm font-medium text-zinc-600 hover:bg-zinc-200 dark:text-zinc-400 dark:hover:bg-zinc-800"
 							>
 								Close & View Chat
 							</button>
-							<a 
+							<a
 								href="/" // Or wherever your home/dashboard is
 								className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
 							>

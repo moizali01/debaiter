@@ -1,6 +1,7 @@
 import dotenv from "dotenv"
 import express from "express"
-import https from "https"
+// import https from "https"
+import http from "http"
 import fs from "fs"
 import { Server } from "socket.io"
 
@@ -9,15 +10,15 @@ dotenv.config()
 
 const app = express()
 
-const httpsOptions = {
-	key : fs.readFileSync("/etc/letsencrypt/live/socket.debaiter.app/privkey.pem"),
-	cert : fs.readFileSync("/etc/letsencrypt/live/socket.debaiter.app/cert.pem"),
-	ca : fs.readFileSync("/etc/letsencrypt/live/socket.debaiter.app/chain.pem"),
-}
+// const httpsOptions = {
+// 	key : fs.readFileSync("/etc/letsencrypt/live/socket.debaiter.app/privkey.pem"),
+// 	cert : fs.readFileSync("/etc/letsencrypt/live/socket.debaiter.app/cert.pem"),
+// 	ca : fs.readFileSync("/etc/letsencrypt/live/socket.debaiter.app/chain.pem"),
+// }
 
-const server = https.createServer(httpsOptions,app)
+const server = http.createServer(app)
 
-const port = process.env.PORT
+const port = "8080"
 
 // Initialize Socket.IO with CORS
 const io = new Server(server, {
@@ -58,6 +59,7 @@ io.on('connection', (socket) => {
       userName,
       role
     }
+
     debate.participants.push(participant)
 
     console.log(`${userName} joined debate ${debateId} as ${role}`)
@@ -207,6 +209,20 @@ io.on('connection', (socket) => {
       }
     })
   })
+
+	socket.on('debate-result', ({debateId,winner, reasoning, from}) => {
+
+		console.log("Received the debate-result")
+		// Once you get a debate-result, propagate that to 
+		// the other player
+		socket.to(debateId).emit('debate-result',{
+			debateId,
+			winner : winner,
+			reasoning : reasoning,
+			from : from
+		})
+
+	})
 })
 
 server.listen(port,() => {
