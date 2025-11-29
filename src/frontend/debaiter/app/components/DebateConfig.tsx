@@ -85,12 +85,12 @@ export default function DebateConfig() {
                         PLAY AGAINST
                     </h2>
                     <div className="grid grid-cols-2 gap-3">
-                        <ConfigButton
+                        {/* <ConfigButton
                             onClick={() => setOpponent('human')}
                             isSelected={opponent === 'human'}
                         >
                             Human
-                        </ConfigButton>
+                        </ConfigButton> */}
                         <ConfigButton
                             onClick={() => setOpponent('ai')}
                             isSelected={opponent === 'ai'}
