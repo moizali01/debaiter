@@ -108,6 +108,10 @@ export default function DebatePage({ params }: { params: Promise<{ id: string }>
 
     // Scroll to bottom helper
     const messagesEndRef = useRef<HTMLDivElement>(null);
+    const processedMessageIdsRef = useRef<Set<string>>(new Set());
+    const hasEmittedJudgeRef = useRef(false);
+
+
     const scrollToBottom = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     };
@@ -187,36 +191,40 @@ export default function DebatePage({ params }: { params: Promise<{ id: string }>
         recognition.start();
       };
 
-    // -- JUDGE LOGIC --
+    // judge
     const concludeDebate = async () => {
-        setIsDebateFinished(true);
-        setIsTurnActive(false);
-        setTimer(null);
         console.log("Debate finished. Sending transcript to Judge API...");
 
-        const fullTranscript = [...userMessages, ...opponentMessages].sort((a, b) =>
-            a.timestamp - b.timestamp
+        const fullTranscript = [...userMessages, ...opponentMessages].sort(
+            (a, b) => a.timestamp - b.timestamp
         );
 
         try {
-            const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_HOSTNAME}/judgeAI`, {
-                body: JSON.stringify({ transcript: fullTranscript, topic: topic }),
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-            });
-
-            if (!response.ok) throw new Error('API Error');
-            const data = await response.json();
-
-            setDebateResult({
-                winner: data.winner,
-                reasoning: data.reasoning
-            });
-
-        } catch (error) {
-            console.error("Error sending transcript to Judge API:", error);
+        const response = await fetch(
+            `${process.env.NEXT_PUBLIC_BACKEND_HOSTNAME}/judgeAI`,
+        {
+            body: JSON.stringify({ transcript: fullTranscript, topic }),
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
         }
+        );
+
+        if (!response.ok) throw new Error("API Error");
+        const data = await response.json();
+
+        const result = {
+        winner: data.winner,
+        reasoning: data.reasoning,
     };
+
+    setDebateResult(result);
+    return result;          // ⬅️ important: return result
+  } catch (error) {
+    console.error("Error sending transcript to Judge API:", error);
+    return null;
+  }
+};
+
 
     // -- Function to communicate with AI --
     const fetchAIResponse = async (promptMessage: string) => {
@@ -274,11 +282,36 @@ export default function DebatePage({ params }: { params: Promise<{ id: string }>
 
 
     useEffect(() => {
-        // Check if we have reached the max turns
-        if (turnCount >= MAX_TURNS && !isDebateFinished) {
-            concludeDebate();
+        if (turnCount < MAX_TURNS) return;
+        if (hasEmittedJudgeRef.current) return; // already handled
+
+        hasEmittedJudgeRef.current = true;
+
+        // Turn debate off on THIS client
+        setIsDebateFinished(true);
+        setIsTurnActive(false);
+        setTimer(null);
+        setIsListening(false);
+
+        if (opponentType === "ai") {
+            // just judge locally
+            void concludeDebate();
+        } else if (opponentType === "human") {
+            // only AFFIRMATIVE calls judge, then shares result
+        if (userRole === "affirmative" && socketRef.current) {
+        (async () => {
+            const result = await concludeDebate();
+            if (result) {
+                socketRef.current?.emit("debate-result", {
+                debateId,
+                result,
+                });
+            }
+        })();
         }
-    }, [turnCount, userMessages, opponentMessages]);
+    }
+    }, [turnCount, opponentType, userRole, debateId]);
+
 
     // If opponent type is human, setup a socket server
     useEffect(() => {
@@ -349,23 +382,20 @@ export default function DebatePage({ params }: { params: Promise<{ id: string }>
 
     socket.on('new-message', ({ from, text, timestamp }) => {
         console.log('📩 [client] new-message', { from, text, timestamp, userRole });
-
-        if (from !== userRole) {
         const id = `${from}-${timestamp}`;
-
-        setOpponentMessages(prev => {
-        // if we've already added this message, skip it
-        if (prev.some(m => m.id === id)) {
+        if(processedMessageIdsRef.current.has(id)) {
             console.log('⚠️ [client] Duplicate message ignored', { id });
-            return prev;
+            return;
         }
-
-        return [...prev, { id, text, timestamp }];
+        processedMessageIdsRef.current.add(id);
+        if (from !== userRole) {
+            setOpponentMessages(prev => [...prev, { id, text, timestamp }]);
+            setIsLoading(false);
+        }
+        if(opponentType === 'human' && from==='negative'){
+            setTurnCount(prev => prev + 1);
+        }
     });
-
-    setIsLoading(false);
-  }
-});
 
 
     socket.on('turn-changed', ({ currentTurn, startTimer, reason }) => {
@@ -380,6 +410,16 @@ export default function DebatePage({ params }: { params: Promise<{ id: string }>
         setTimer(null);
       }
     });
+
+    socket.on("debate-result", (result: { winner: string; reasoning: string }) => {
+        console.log("📩 [client] debate-result", result);
+        setIsDebateFinished(true);
+        setIsTurnActive(false);
+        setTimer(null);
+        setIsListening(false);
+        setDebateResult(result);
+    });
+
 
     socket.on('opponent-typing', () => {
       setIsTyping(true);
@@ -631,17 +671,19 @@ export default function DebatePage({ params }: { params: Promise<{ id: string }>
                                     }
                                 }}
                                 placeholder={
-                                    isTurnActive
+                                    isDebateFinished
+                                        ? 'Debate concluded.'
+                                    : isTurnActive
                                         ? (isListening ? 'Listening...' : 'Type your argument here...')
-                                        : isLoading
-                                            ? 'Opponent is thinking...'
-                                            : "Time's up! Waiting for opponent."
+                                    : isLoading
+                                        ? 'Opponent is thinking...'
+                                    : "Time's up! Waiting for opponent."
                                 }
                                 rows={1}
                                 className={`w-full min-h-[3rem] max-h-32 resize-none rounded-2xl border px-4 py-3 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-zinc-900 dark:text-white
                                     ${isListening ? 'border-red-500 ring-1 ring-red-500' : 'border-zinc-300 dark:border-zinc-700'}
                                 `}
-                                disabled={isLoading || !isTurnActive}
+                                disabled={isLoading || !isTurnActive || isDebateFinished}
                             />
                         </div>
 
@@ -650,7 +692,7 @@ export default function DebatePage({ params }: { params: Promise<{ id: string }>
                             <button
                                 type="button"
                                 onClick={toggleListening}
-                                disabled={isLoading || !isTurnActive}
+                                disabled={isLoading || !isTurnActive || isDebateFinished}
                                 className={`flex h-12 w-12 items-center justify-center rounded-full transition-all 
                                     ${isListening
                                         ? 'animate-pulse bg-red-100 text-red-600 hover:bg-red-200'
@@ -675,7 +717,7 @@ export default function DebatePage({ params }: { params: Promise<{ id: string }>
                         </div>
                     </div>
                     <div className="mt-1 text-center text-xs text-zinc-400">
-                        {isTurnActive ? "Press Enter to send" : "Please wait..."}
+                        {isDebateFinished ? "debate Finished": isTurnActive ? "Press Enter to send" : "Please wait..."}
                     </div>
                 </form>
             </div>

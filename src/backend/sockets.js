@@ -209,7 +209,7 @@ socket.on('send-message', ({ debateId, message, role, opponentType }) => {
   }
 
   // (AI logic can stay as you had it if you’re also supporting AI here)
-});
+  });
 
 
   // timer exiration event
@@ -259,6 +259,13 @@ socket.on('send-message', ({ debateId, message, role, opponentType }) => {
       }
     })
   })
+
+  // When one client affirmative gets the debate result from AI judge
+  socket.on('debate-result', ({ debateId, result }) => {
+    console.log('📩 [server] debate-result received', { debateId, result });
+    // send to everyone else in the room
+    socket.to(debateId).emit('debate-result', result);
+  });
 })
 
 server.listen(port,() => {

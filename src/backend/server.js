@@ -51,6 +51,7 @@ app.use(pinoLogger);
 
 // Health check endpoint
 app.get("/health", (req, res) => {
+  console.log("Health check OK");
   res.status(200).send({ status: "OK", message: "Server is running" });
 });
 
