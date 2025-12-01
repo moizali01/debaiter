@@ -13,11 +13,11 @@ const port = process.env.SOCKETS_PORT || 4000;
 // Plain HTTP server for local dev
 const server = http.createServer(app);
 
-const httpsOptions = {
-	key : fs.readFileSync("/etc/letsencrypt/live/socket.debaiter.app/privkey.pem"),
-	cert : fs.readFileSync("/etc/letsencrypt/live/socket.debaiter.app/cert.pem"),
-	ca : fs.readFileSync("/etc/letsencrypt/live/socket.debaiter.app/chain.pem"),
-}
+// const httpsOptions = {
+// 	key : fs.readFileSync("/etc/letsencrypt/live/socket.debaiter.app/privkey.pem"),
+// 	cert : fs.readFileSync("/etc/letsencrypt/live/socket.debaiter.app/cert.pem"),
+// 	ca : fs.readFileSync("/etc/letsencrypt/live/socket.debaiter.app/chain.pem"),
+// }
 
 // for https deployment
 // const server = https.createServer(httpsOptions,app)

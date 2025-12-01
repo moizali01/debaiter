@@ -83,6 +83,7 @@ export default function DebatePage({ params }: { params: Promise<{ id: string }>
 
     // Link Modal
     const [modalState, setModalState] = useState<boolean>(false);
+    const [participantCount, setParticipantCount] = useState<number>(0);
 
     const [debateResult, setDebateResult] = useState<{ winner: string; reasoning: string } | null>(null);
 
@@ -280,137 +281,137 @@ export default function DebatePage({ params }: { params: Promise<{ id: string }>
     }, [turnCount, userMessages, opponentMessages]);
 
     // If opponent type is human, setup a socket server
-    if (opponentType === "human") {
+    useEffect(() => {
+  // Only do socket stuff for human vs human
+  if (opponentType !== "human") return;
+  if (!session?.user) return;  // user must be logged in
 
-        // initialize the socket connection
-        useEffect(() => {
-            if (!session?.user) return;
+  if (!socketRef.current) {
+    const socket = io(process.env.NEXT_PUBLIC_SOCKET_HOSTNAME as string, {
+      transports: ['websocket', 'polling'],
+    });
 
-            if (socketRef.current === null || socketRef.current === undefined ) {
-                // Only setup a connection if one doesn't exist already
-                socketRef.current = io(process.env.NEXT_PUBLIC_SOCKET_HOSTNAME, {
-                    transports: ['websocket', 'polling']
-                });
+    socketRef.current = socket;
 
-                socketRef.current.on('connect', () => {
-                    if (connectionStatus === "disconnected" || connectionStatus === "connecting") {
-                        // Only send a join debate message if this is your first time connecting
-                        // or if you're reconnecting
-                        console.log('Connected to server');
-                        setConnectionStatus('connected');
+    socket.on('connect', () => {
+      console.log('✅ [client] Connected to socket server', { debateId, userRole });
 
-                        // event for joining the room based on debateId
-                        socketRef.current?.emit('join-debate', {
-                            debateId,
-                            userId: session.user?.email,
-                            userName: session.user?.name,
-                            role: userRole,
-                            opponentType
-                        });
-                    }
+      setConnectionStatus('connected');
 
-                });
+      socket.emit('join-debate', {
+        debateId,
+        userId: session.user?.email,
+        userName: session.user?.name,
+        role: userRole,
+        opponentType,  // should be "human" on BOTH tabs
+      });
+    });
 
-                socketRef.current.on('disconnect', () => {
-                    console.log('Disconnected from server');
-                    setConnectionStatus('disconnected');
-                });
+    socket.on('disconnect', () => {
+      console.log('⚠️ [client] Disconnected from socket server');
+      setConnectionStatus('disconnected');
+    });
 
-                // event receive from server for debate state
-                socketRef.current.on('debate-state', ({ currentTurn, timerActive, participantCount }) => {
-                    if (participantCount === 2) {
-                        // If a debate has already started
-                        const isMyTurn = currentTurn === userRole;
-                        setIsTurnActive(isMyTurn);
-                        if (isMyTurn && timerActive) {
-                            //if it's user's turn start timer
-                            setTimer(60);
-                        }
-                    } else {
-                        // If a debate hasn't started, show user the opponent link modal
-                        // so they can share the link with someone
-                        setModalState(true);
-                    }
-                });
+    socket.on('debate-state', ({ currentTurn, timerActive, participantCount }) => {
+        console.log('📩 [client] debate-state', { currentTurn, timerActive, participantCount, userRole });
 
-                // if both user connected to room then receives even from server (human vs Human)
-                socketRef.current.on('debate-ready', ({ message, currentTurn }) => {
-                    // We're good to go! Deactivate the opponent link modal
-                    setModalState(false);
+        setParticipantCount(participantCount);
 
-                    console.log(message);
-                    const isMyTurn = currentTurn === userRole;
-                    setIsTurnActive(isMyTurn);
-                    if (isMyTurn) {
-                        setTimer(60);
-                    }
-                });
+        if (participantCount >= 2) {
+        // Two people in the room → hide modal for BOTH players
+        setModalState(false);
 
-                // if server sends a new message from opponent
-                socketRef.current.on('new-message', ({ from, text, timestamp }) => {
-                    if (from !== userRole) {
-                        // If this is a message from your opponent, mark it as so
-                        const newMessage: Message = {
-                            id: `${from}-${timestamp}`,
-                            text: text,
-                            timestamp: timestamp,
-                        };
-                        setOpponentMessages(prev => [...prev, newMessage]);
-                        setIsLoading(false);
-                    }
-                });
+        const isMyTurn = currentTurn === userRole;
+        setIsTurnActive(isMyTurn);
 
-                // handle turn changes event from server
-                socketRef.current.on('turn-changed', ({ currentTurn, startTimer, reason }) => {
-                    const isMyTurn = currentTurn === userRole;
-                    setIsTurnActive(isMyTurn);
-
-                    if (isMyTurn && startTimer) {
-                        setTimer(60);
-                    } else {
-                        setTimer(null);
-                    }
-
-                    if (reason === 'timer-expired') {
-                        console.log('Turn switched due to timer expiration');
-                    }
-                });
-
-                // while opponent is typing
-                socketRef.current.on('opponent-typing', () => {
-                    setIsTyping(true);
-                });
-
-                //while opponent stopped typing for 2 sec
-                socketRef.current.on('opponent-stop-typing', () => {
-                    setIsTyping(false);
-                });
-
-                // when user joins
-                socketRef.current.on('participant-joined', ({ userName, role }) => {
-                    console.log(`${userName} joined as ${role}`);
-                });
-                // when user leaves
-                socketRef.current.on('participant-left', ({ userName, role }) => {
-                    console.log(`${userName} (${role}) left the debate`);
-                });
-
-                socketRef.current.on('error', ({ message }) => {
-                    console.error('Socket error:', message);
-                    alert(message);
-                });
-
-            }
+        if (isMyTurn && timerActive) {
+            setTimer(60);
+        }
+        } else {
+            setModalState(true);
+            setIsTurnActive(false);
+            setTimer(null);
+        }
+    });
 
 
-            // Cleanup on unmount
-            return () => {
-                if (socketRef.current?.connected)
-                    socketRef.current.disconnect();
-            };
-        }, [session, debateId, userRole, opponentType]);
+    socket.on('debate-ready', ({ message, currentTurn }) => {
+      console.log('📩 [client] debate-ready', { message, currentTurn, userRole });
 
+      setModalState(false);
+
+      const isMyTurn = currentTurn === userRole;
+      setIsTurnActive(isMyTurn);
+      if (isMyTurn) {
+        setTimer(60);
+      }
+    });
+
+    socket.on('new-message', ({ from, text, timestamp }) => {
+        console.log('📩 [client] new-message', { from, text, timestamp, userRole });
+
+        if (from !== userRole) {
+        const id = `${from}-${timestamp}`;
+
+        setOpponentMessages(prev => {
+        // if we've already added this message, skip it
+        if (prev.some(m => m.id === id)) {
+            console.log('⚠️ [client] Duplicate message ignored', { id });
+            return prev;
+        }
+
+        return [...prev, { id, text, timestamp }];
+    });
+
+    setIsLoading(false);
+  }
+});
+
+
+    socket.on('turn-changed', ({ currentTurn, startTimer, reason }) => {
+      console.log('📩 [client] turn-changed', { currentTurn, startTimer, reason, userRole });
+
+      const isMyTurn = currentTurn === userRole;
+      setIsTurnActive(isMyTurn);
+
+      if (isMyTurn && startTimer) {
+        setTimer(60);
+      } else {
+        setTimer(null);
+      }
+    });
+
+    socket.on('opponent-typing', () => {
+      setIsTyping(true);
+    });
+
+    socket.on('opponent-stop-typing', () => {
+      setIsTyping(false);
+    });
+
+    socket.on('participant-joined', ({ userName, role }) => {
+      console.log(`👤 [client] ${userName} joined as ${role}`);
+    });
+
+    socket.on('participant-left', ({ userName, role }) => {
+      console.log(`👤 [client] ${userName} (${role}) left the debate`);
+    });
+
+    socket.on('error', ({ message }) => {
+      console.error('❌ [client] Socket error:', message);
+      alert(message);
+    });
+  }
+
+  // Cleanup on unmount
+  return () => {
+    if (socketRef.current?.connected) {
+      socketRef.current.disconnect();
     }
+    socketRef.current = null;
+  };
+}, [session, debateId, userRole, opponentType]);
+
 
     // -- Timer Logic --
     useEffect(() => {
@@ -439,15 +440,6 @@ export default function DebatePage({ params }: { params: Promise<{ id: string }>
                     message: "(Time ran out - Turn skipped)",
                     role: userRole,
                     opponentType
-                });
-
-                // Switch the turn logic
-                const switchedTurn = userRole === 'affirmative' ? 'negative' : 'affirmative';
-                
-                socketRef.current?.emit('turn-changed', {
-                    currentTurn: switchedTurn,
-                    startTimer: true,
-                    reason: 'timer-expired'
                 });
             } else {
                 // AI Opponent
