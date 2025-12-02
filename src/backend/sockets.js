@@ -4,10 +4,16 @@ import fs from "fs"
 import http from "http";   
 import https from "https";       
 import { Server } from "socket.io";
+import cors from "cors"
 
 dotenv.config();
 
 const app = express();
+
+app.use(cors({
+  origin: process.env.FRONTEND_HOSTNAME, 
+  methods: ["GET", "POST"]
+}));
 
 // const port = process.env.SOCKETS_PORT || 4000;
 
@@ -33,6 +39,26 @@ const io = new Server(server, {
   },
 });
 
+
+// API for lobby list
+app.get('/api/open-debates', (req, res) => {
+  const openGames = [];
+
+  activeDebates.forEach((debate, id) => {
+    // We only want Human vs Human games that have exactly 1 participant
+    if (debate.opponentType === 'human' && debate.participants.length === 1) {
+      openGames.push({
+        id: id,
+        topic: debate.topic,
+        creatorRole: debate.participants[0].role,
+        creatorName: debate.participants[0].userName,
+        createdAt: debate.createdAt
+      });
+    }
+  });
+
+  res.json(openGames);
+});
 
 
 // dictionary for storing debates and their states with properties like participants,oppent-type, current turn, timers, etc.
@@ -152,12 +178,13 @@ socket.on('send-message', ({ debateId, message, role, opponentType }) => {
   });
 });
 
-  socket.on('join-debate', ({ debateId, userId, userName, role, opponentType }) => {
+  socket.on('join-debate', ({ debateId, userId, userName, role, opponentType, topic }) => {
   socket.join(debateId);
 
   if (!activeDebates.has(debateId)) {
     activeDebates.set(debateId, {
       participants: [],
+      topic: topic,
       opponentType,
       currentTurn: 'affirmative', // Affirmative always starts
       timerActive: true,

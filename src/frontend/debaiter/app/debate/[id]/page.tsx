@@ -337,6 +337,7 @@ export default function DebatePage({ params }: { params: Promise<{ id: string }>
         userName: session.user?.name,
         role: userRole,
         opponentType,  // should be "human" on BOTH tabs
+        topic: topic
       });
     });
 
