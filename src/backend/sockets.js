@@ -1,5 +1,6 @@
 import dotenv from "dotenv";
 import express from "express";
+import fs from "fs"
 import http from "http";   
 import https from "https";       
 import { Server } from "socket.io";
@@ -8,21 +9,21 @@ dotenv.config();
 
 const app = express();
 
-const port = process.env.SOCKETS_PORT || 4000;
+// const port = process.env.SOCKETS_PORT || 4000;
 
 // Plain HTTP server for local dev
-const server = http.createServer(app);
+// const server = http.createServer(app);
 
-// const httpsOptions = {
-// 	key : fs.readFileSync("/etc/letsencrypt/live/socket.debaiter.app/privkey.pem"),
-// 	cert : fs.readFileSync("/etc/letsencrypt/live/socket.debaiter.app/cert.pem"),
-// 	ca : fs.readFileSync("/etc/letsencrypt/live/socket.debaiter.app/chain.pem"),
-// }
+const httpsOptions = {
+	key : fs.readFileSync("/etc/letsencrypt/live/socket.debaiter.app/privkey.pem"),
+	cert : fs.readFileSync("/etc/letsencrypt/live/socket.debaiter.app/cert.pem"),
+	ca : fs.readFileSync("/etc/letsencrypt/live/socket.debaiter.app/chain.pem"),
+}
 
 // for https deployment
-// const server = https.createServer(httpsOptions,app)
+const server = https.createServer(httpsOptions,app)
 
-// const port = process.env.PORT
+const port = process.env.PORT
 
 // Initialize Socket.IO with CORS
 const io = new Server(server, {
