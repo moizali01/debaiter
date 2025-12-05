@@ -20,7 +20,7 @@ const projectId = process.env.PROJECT_ID;
 const projectLocation = process.env.PROJECT_LOCATION;
 const appCredentials = process.env.GOOGLE_APPLICATION_CREDENTIALS;
 const appScope = process.env.GOOGLE_VERTEX_AI_SCOPE;
-const port = process.env.PORT;
+const port = process.env.BACKEND_PORT;
 
 const authClient = new GoogleAuth({
   keyFile: appCredentials,
@@ -51,6 +51,7 @@ app.use(pinoLogger);
 
 // Health check endpoint
 app.get("/health", (req, res) => {
+  console.log("Health check OK");
   res.status(200).send({ status: "OK", message: "Server is running" });
 });
 
