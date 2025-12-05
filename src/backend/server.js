@@ -51,6 +51,7 @@ app.use(pinoLogger);
 
 // Health check endpoint
 app.get("/health", (req, res) => {
+  console.log("Health check OK");
   res.status(200).send({ status: "OK", message: "Server is running" });
 });
 
@@ -85,9 +86,10 @@ app.post("/promptAI", async (req, res) => {
     const topic = req.body.topic || "General";
     const role = req.body.role || "Debater";
     const message = req.body.message;
-
+	const transcript = req.body.transcript || "";
+	// console.log("Debate Transcript:", transcript);
     // Use the system prompt generator function
-    const systemPrompt = generateDebateSystemPrompt(topic, role);
+    const systemPrompt = generateDebateSystemPrompt(topic, role, transcript);
 
     console.log(`Generating content for topic: "${topic}", role: "${role}"`);
 

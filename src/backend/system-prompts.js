@@ -28,7 +28,7 @@
  *   }
  * })
  */
-export function generateDebateSystemPrompt(topic, role) {
+export function generateDebateSystemPrompt(topic, role, transcript = "") {
   const roleDescription =
     role === "affirmative"
       ? "argue in FAVOR of the proposition"
@@ -72,7 +72,10 @@ DEBATE STANDARDS:
 - If citing examples, make them relevant to the proposition
 - Maintain intellectual honesty - acknowledge strong counterarguments but explain why your position is stronger
 
-RESPOND ONLY WITH YOUR DEBATE ARGUMENT. Do not include meta-commentary, explanations of your strategy, or anything outside your debate argument. Your response must be a direct, professional debate argument on the given topic.`;
+Here is the transcript of the debate so far:
+${transcript}
+
+RESPOND ONLY WITH YOUR DEBATE ARGUMENT. Do not include meta-commentary, explanations of your strategy, or anything outside your debate argument. Your response must be a direct, professional debate argument on the given topic. Note that each user has a 60 second time limit to respond. Make sure your argument is not longer than what can be reasonably spoken in 60 seconds or less.`;
 }
 
 /**
@@ -326,7 +329,7 @@ export const debatePrompts = {
   defaultJudgePrompt: (topic) => generateJudgeSystemPrompt(topic),
 };
 
-/**
+/*
  * USAGE EXAMPLES
  *
  * Example 1: Standard debate argument

@@ -6,9 +6,7 @@ Our application will allow any user to take on any one of the roles commonly see
 
 1. Affirmative Speaker, arguing in favor of a proposition
 2. Negative Speaker, arguing against said proposition
-3. Rebuttal Speaker, delivering counter-arguments in an optional rebuttal round
-4. Cross-Examiner, in an optional policy debate setting
-5. Judge, delivering the final decision and declaring the victor!
+3. Judge, delivering the final decision and declaring the victor!
 
 We allow you to take on any role on debates regarding any proposition, while we take care of everything else and be the timekeeper.
 
@@ -22,6 +20,3 @@ Our application will automatically timekeep each speaker and will transcribe you
 
 ## Final judgment
 After all arguments have been made, a user or an LLM will deliver the final judgment and assign points to each camp. The camp with the highest points will win!
-
-## Leaderboard
-You'll be able to see where you stack up against all other debaters in our leaderboard. The more decisive your win against the other camp, the higher up on the leaderboard you'll be!
