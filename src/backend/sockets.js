@@ -27,8 +27,8 @@ const httpsOptions = {
 }
 
 // for https deployment
-// const server = https.createServer(httpsOptions,app)
-const server = http.createServer(app)
+const server = https.createServer(httpsOptions,app)
+// const server = http.createServer(app)
 
 const port = process.env.SOCKET_PORT
 
