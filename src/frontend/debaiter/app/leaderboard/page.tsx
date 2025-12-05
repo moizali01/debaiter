@@ -82,11 +82,13 @@ export default function LeaderboardPage() {
 
       setLeaderboard(leaderboardData);
 
-      // Find current user's rank
       if (session?.user?.email) {
+        const userEmail = session.user.email; // now TS knows it’s defined
+
         const userIndex = leaderboardData.findIndex(
-          (entry) => entry.user_email === session.user.email
+          (entry) => entry.user_email === userEmail
         );
+
         if (userIndex !== -1) {
           setUserRank({
             rank: userIndex + 1,
