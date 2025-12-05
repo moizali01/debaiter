@@ -27,9 +27,10 @@ app.use(cors({
 // }
 
 // for https deployment
-const server = https.createServer(httpsOptions,app)
+// const server = https.createServer(httpsOptions,app)
+const server = http.createServer(app)
 
-const port = "8080"
+const port = process.env.SOCKET_PORT
 
 // Initialize Socket.IO with CORS
 const io = new Server(server, {
