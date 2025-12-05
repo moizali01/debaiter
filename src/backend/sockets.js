@@ -26,9 +26,7 @@ const httpsOptions = {
 	ca : fs.readFileSync("/etc/letsencrypt/live/socket.debaiter.app/chain.pem"),
 }
 
-// for https deployment
 const server = https.createServer(httpsOptions,app)
-// const server = http.createServer(app)
 
 const port = process.env.SOCKET_PORT
 
