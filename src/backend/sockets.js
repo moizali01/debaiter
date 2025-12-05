@@ -45,7 +45,7 @@ app.get('/api/open-debates', (req, res) => {
 
   activeDebates.forEach((debate, id) => {
     // We only want Human vs Human games that have exactly 1 participant
-    if (debate.opponentType === 'human' && debate.participants.length === 1) {
+    if (debate.opponentType === 'human' && debate.participants.length === 1 && !debate.debateFull ) {
       openGames.push({
         id: id,
         topic: debate.topic,
@@ -187,6 +187,7 @@ socket.on('send-message', ({ debateId, message, role, opponentType }) => {
       opponentType,
       currentTurn: 'affirmative', // Affirmative always starts
       timerActive: true,
+			debateFull : false,
     });
   }
 
@@ -233,6 +234,8 @@ socket.on('send-message', ({ debateId, message, role, opponentType }) => {
       message: 'Both players connected. Debate can begin!',
       currentTurn: debate.currentTurn,
     });
+
+		debate.debateFull = true;
   }
 
   // (AI logic can stay as you had it if you’re also supporting AI here)
