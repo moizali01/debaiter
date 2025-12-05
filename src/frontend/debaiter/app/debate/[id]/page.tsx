@@ -718,7 +718,7 @@ export default function DebatePage({ params }: { params: Promise<{ id: string }>
                         </div>
                     </div>
                     <div className="mt-1 text-center text-xs text-zinc-400">
-                        {isDebateFinished ? "debate Finished": isTurnActive ? "Press Enter to send" : "Please wait..."}
+                        {isDebateFinished ? "Debate Finished": isTurnActive ? "Press Enter to send" : "Please wait..."}
                     </div>
                 </form>
             </div>
