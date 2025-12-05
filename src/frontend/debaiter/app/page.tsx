@@ -1,5 +1,5 @@
-import { getServerSession } from 'next-auth';
-import DebateConfig from './components/DebateConfig';
+import { getServerSession } from "next-auth";
+import DebateConfig from "./components/DebateConfig";
 
 export default async function Home() {
   const session = await getServerSession();
