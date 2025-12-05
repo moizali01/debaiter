@@ -83,6 +83,7 @@ export default function DebatePage({ params }: { params: Promise<{ id: string }>
 
     // Link Modal
     const [modalState, setModalState] = useState<boolean>(false);
+    const [participantCount, setParticipantCount] = useState<number>(0);
 
     const [debateResult, setDebateResult] = useState<{ winner: string; reasoning: string } | null>(null);
 
@@ -107,6 +108,10 @@ export default function DebatePage({ params }: { params: Promise<{ id: string }>
 
     // Scroll to bottom helper
     const messagesEndRef = useRef<HTMLDivElement>(null);
+    const processedMessageIdsRef = useRef<Set<string>>(new Set());
+    const hasEmittedJudgeRef = useRef(false);
+
+
     const scrollToBottom = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     };
@@ -186,36 +191,40 @@ export default function DebatePage({ params }: { params: Promise<{ id: string }>
         recognition.start();
       };
 
-    // -- JUDGE LOGIC --
+    // judge
     const concludeDebate = async () => {
-        setIsDebateFinished(true);
-        setIsTurnActive(false);
-        setTimer(null);
         console.log("Debate finished. Sending transcript to Judge API...");
 
-        const fullTranscript = [...userMessages, ...opponentMessages].sort((a, b) =>
-            a.timestamp - b.timestamp
+        const fullTranscript = [...userMessages, ...opponentMessages].sort(
+            (a, b) => a.timestamp - b.timestamp
         );
 
         try {
-            const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_HOSTNAME}/judgeAI`, {
-                body: JSON.stringify({ transcript: fullTranscript, topic: topic }),
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-            });
-
-            if (!response.ok) throw new Error('API Error');
-            const data = await response.json();
-
-            setDebateResult({
-                winner: data.winner,
-                reasoning: data.reasoning
-            });
-
-        } catch (error) {
-            console.error("Error sending transcript to Judge API:", error);
+        const response = await fetch(
+            `${process.env.NEXT_PUBLIC_BACKEND_HOSTNAME}/judgeAI`,
+        {
+            body: JSON.stringify({ transcript: fullTranscript, topic }),
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
         }
+        );
+
+        if (!response.ok) throw new Error("API Error");
+        const data = await response.json();
+
+        const result = {
+        winner: data.winner,
+        reasoning: data.reasoning,
     };
+
+    setDebateResult(result);
+    return result;          // ⬅️ important: return result
+  } catch (error) {
+    console.error("Error sending transcript to Judge API:", error);
+    return null;
+  }
+};
+
 
     // -- Function to communicate with AI --
     const fetchAIResponse = async (promptMessage: string) => {
@@ -273,144 +282,177 @@ export default function DebatePage({ params }: { params: Promise<{ id: string }>
 
 
     useEffect(() => {
-        // Check if we have reached the max turns
-        if (turnCount >= MAX_TURNS && !isDebateFinished) {
-            concludeDebate();
+        if (turnCount < MAX_TURNS) return;
+        if (hasEmittedJudgeRef.current) return; // already handled
+
+        hasEmittedJudgeRef.current = true;
+
+        // Turn debate off on THIS client
+        setIsDebateFinished(true);
+        setIsTurnActive(false);
+        setTimer(null);
+        setIsListening(false);
+
+        if (opponentType === "ai") {
+            // just judge locally
+            void concludeDebate();
+        } else if (opponentType === "human") {
+            // only AFFIRMATIVE calls judge, then shares result
+        if (userRole === "affirmative" && socketRef.current) {
+        (async () => {
+            const result = await concludeDebate();
+            if (result) {
+                socketRef.current?.emit("debate-result", {
+                debateId,
+                result,
+                });
+            }
+        })();
         }
-    }, [turnCount, userMessages, opponentMessages]);
+    }
+    }, [turnCount, opponentType, userRole, debateId]);
+
 
     // If opponent type is human, setup a socket server
-    if (opponentType === "human") {
+    useEffect(() => {
+  // Only do socket stuff for human vs human
+  if (opponentType !== "human") return;
+  if (!session?.user) return;  // user must be logged in
 
-        // initialize the socket connection
-        useEffect(() => {
-            if (!session?.user) return;
+  if (!socketRef.current) {
+    const socket = io(process.env.NEXT_PUBLIC_SOCKET_HOSTNAME as string, {
+      transports: ['websocket', 'polling'],
+    });
 
-            if (socketRef.current === null || socketRef.current === undefined ) {
-                // Only setup a connection if one doesn't exist already
-                socketRef.current = io(process.env.NEXT_PUBLIC_SOCKET_HOSTNAME, {
-                    transports: ['websocket', 'polling']
-                });
+    socketRef.current = socket;
 
-                socketRef.current.on('connect', () => {
-                    if (connectionStatus === "disconnected" || connectionStatus === "connecting") {
-                        // Only send a join debate message if this is your first time connecting
-                        // or if you're reconnecting
-                        console.log('Connected to server');
-                        setConnectionStatus('connected');
+    socket.on('connect', () => {
+      console.log('✅ [client] Connected to socket server', { debateId, userRole });
 
-                        // event for joining the room based on debateId
-                        socketRef.current?.emit('join-debate', {
-                            debateId,
-                            userId: session.user?.email,
-                            userName: session.user?.name,
-                            role: userRole,
-                            opponentType
-                        });
-                    }
+      setConnectionStatus('connected');
 
-                });
+      socket.emit('join-debate', {
+        debateId,
+        userId: session.user?.email,
+        userName: session.user?.name,
+        role: userRole,
+        opponentType,  // should be "human" on BOTH tabs
+        topic: topic
+      });
+    });
 
-                socketRef.current.on('disconnect', () => {
-                    console.log('Disconnected from server');
-                    setConnectionStatus('disconnected');
-                });
+    socket.on('disconnect', () => {
+      console.log('⚠️ [client] Disconnected from socket server');
+      setConnectionStatus('disconnected');
+    });
 
-                // event receive from server for debate state
-                socketRef.current.on('debate-state', ({ currentTurn, timerActive, participantCount }) => {
-                    if (participantCount === 2) {
-                        // If a debate has already started
-                        const isMyTurn = currentTurn === userRole;
-                        setIsTurnActive(isMyTurn);
-                        if (isMyTurn && timerActive) {
-                            //if it's user's turn start timer
-                            setTimer(60);
-                        }
-                    } else {
-                        // If a debate hasn't started, show user the opponent link modal
-                        // so they can share the link with someone
-                        setModalState(true);
-                    }
-                });
+    socket.on('debate-state', ({ currentTurn, timerActive, participantCount }) => {
+        console.log('📩 [client] debate-state', { currentTurn, timerActive, participantCount, userRole });
 
-                // if both user connected to room then receives even from server (human vs Human)
-                socketRef.current.on('debate-ready', ({ message, currentTurn }) => {
-                    // We're good to go! Deactivate the opponent link modal
-                    setModalState(false);
+        setParticipantCount(participantCount);
 
-                    console.log(message);
-                    const isMyTurn = currentTurn === userRole;
-                    setIsTurnActive(isMyTurn);
-                    if (isMyTurn) {
-                        setTimer(60);
-                    }
-                });
+        if (participantCount >= 2) {
+        // Two people in the room → hide modal for BOTH players
+        setModalState(false);
 
-                // if server sends a new message from opponent
-                socketRef.current.on('new-message', ({ from, text, timestamp }) => {
-                    if (from !== userRole) {
-                        // If this is a message from your opponent, mark it as so
-                        const newMessage: Message = {
-                            id: `${from}-${timestamp}`,
-                            text: text,
-                            timestamp: timestamp,
-                        };
-                        setOpponentMessages(prev => [...prev, newMessage]);
-                        setIsLoading(false);
-                    }
-                });
+        const isMyTurn = currentTurn === userRole;
+        setIsTurnActive(isMyTurn);
 
-                // handle turn changes event from server
-                socketRef.current.on('turn-changed', ({ currentTurn, startTimer, reason }) => {
-                    const isMyTurn = currentTurn === userRole;
-                    setIsTurnActive(isMyTurn);
-
-                    if (isMyTurn && startTimer) {
-                        setTimer(60);
-                    } else {
-                        setTimer(null);
-                    }
-
-                    if (reason === 'timer-expired') {
-                        console.log('Turn switched due to timer expiration');
-                    }
-                });
-
-                // while opponent is typing
-                socketRef.current.on('opponent-typing', () => {
-                    setIsTyping(true);
-                });
-
-                //while opponent stopped typing for 2 sec
-                socketRef.current.on('opponent-stop-typing', () => {
-                    setIsTyping(false);
-                });
-
-                // when user joins
-                socketRef.current.on('participant-joined', ({ userName, role }) => {
-                    console.log(`${userName} joined as ${role}`);
-                });
-                // when user leaves
-                socketRef.current.on('participant-left', ({ userName, role }) => {
-                    console.log(`${userName} (${role}) left the debate`);
-                });
-
-                socketRef.current.on('error', ({ message }) => {
-                    console.error('Socket error:', message);
-                    alert(message);
-                });
-
-            }
+        if (isMyTurn && timerActive) {
+            setTimer(60);
+        }
+        } else {
+            setModalState(true);
+            setIsTurnActive(false);
+            setTimer(null);
+        }
+    });
 
 
-            // Cleanup on unmount
-            return () => {
-                if (socketRef.current?.connected)
-                    socketRef.current.disconnect();
-            };
-        }, [session, debateId, userRole, opponentType]);
+    socket.on('debate-ready', ({ message, currentTurn }) => {
+      console.log('📩 [client] debate-ready', { message, currentTurn, userRole });
 
+      setModalState(false);
+
+      const isMyTurn = currentTurn === userRole;
+      setIsTurnActive(isMyTurn);
+      if (isMyTurn) {
+        setTimer(60);
+      }
+    });
+
+    socket.on('new-message', ({ from, text, timestamp }) => {
+        console.log('📩 [client] new-message', { from, text, timestamp, userRole });
+        const id = `${from}-${timestamp}`;
+        if(processedMessageIdsRef.current.has(id)) {
+            console.log('⚠️ [client] Duplicate message ignored', { id });
+            return;
+        }
+        processedMessageIdsRef.current.add(id);
+        if (from !== userRole) {
+            setOpponentMessages(prev => [...prev, { id, text, timestamp }]);
+            setIsLoading(false);
+        }
+        if(opponentType === 'human' && from==='negative'){
+            setTurnCount(prev => prev + 1);
+        }
+    });
+
+
+    socket.on('turn-changed', ({ currentTurn, startTimer, reason }) => {
+      console.log('📩 [client] turn-changed', { currentTurn, startTimer, reason, userRole });
+
+      const isMyTurn = currentTurn === userRole;
+      setIsTurnActive(isMyTurn);
+
+      if (isMyTurn && startTimer) {
+        setTimer(60);
+      } else {
+        setTimer(null);
+      }
+    });
+
+    socket.on("debate-result", (result: { winner: string; reasoning: string }) => {
+        console.log("📩 [client] debate-result", result);
+        setIsDebateFinished(true);
+        setIsTurnActive(false);
+        setTimer(null);
+        setIsListening(false);
+        setDebateResult(result);
+    });
+
+
+    socket.on('opponent-typing', () => {
+      setIsTyping(true);
+    });
+
+    socket.on('opponent-stop-typing', () => {
+      setIsTyping(false);
+    });
+
+    socket.on('participant-joined', ({ userName, role }) => {
+      console.log(`👤 [client] ${userName} joined as ${role}`);
+    });
+
+    socket.on('participant-left', ({ userName, role }) => {
+      console.log(`👤 [client] ${userName} (${role}) left the debate`);
+    });
+
+    socket.on('error', ({ message }) => {
+      console.error('❌ [client] Socket error:', message);
+      alert(message);
+    });
+  }
+
+  // Cleanup on unmount
+  return () => {
+    if (socketRef.current?.connected) {
+      socketRef.current.disconnect();
     }
+    socketRef.current = null;
+  };
+}, [session, debateId, userRole, opponentType]);
+
 
     // -- Timer Logic --
     useEffect(() => {
@@ -439,15 +481,6 @@ export default function DebatePage({ params }: { params: Promise<{ id: string }>
                     message: "(Time ran out - Turn skipped)",
                     role: userRole,
                     opponentType
-                });
-
-                // Switch the turn logic
-                const switchedTurn = userRole === 'affirmative' ? 'negative' : 'affirmative';
-                
-                socketRef.current?.emit('turn-changed', {
-                    currentTurn: switchedTurn,
-                    startTimer: true,
-                    reason: 'timer-expired'
                 });
             } else {
                 // AI Opponent
@@ -639,17 +672,19 @@ export default function DebatePage({ params }: { params: Promise<{ id: string }>
                                     }
                                 }}
                                 placeholder={
-                                    isTurnActive
+                                    isDebateFinished
+                                        ? 'Debate concluded.'
+                                    : isTurnActive
                                         ? (isListening ? 'Listening...' : 'Type your argument here...')
-                                        : isLoading
-                                            ? 'Opponent is thinking...'
-                                            : "Time's up! Waiting for opponent."
+                                    : isLoading
+                                        ? 'Opponent is thinking...'
+                                    : "Time's up! Waiting for opponent."
                                 }
                                 rows={1}
                                 className={`w-full min-h-[3rem] max-h-32 resize-none rounded-2xl border px-4 py-3 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-zinc-900 dark:text-white
                                     ${isListening ? 'border-red-500 ring-1 ring-red-500' : 'border-zinc-300 dark:border-zinc-700'}
                                 `}
-                                disabled={isLoading || !isTurnActive}
+                                disabled={isLoading || !isTurnActive || isDebateFinished}
                             />
                         </div>
 
@@ -658,7 +693,7 @@ export default function DebatePage({ params }: { params: Promise<{ id: string }>
                             <button
                                 type="button"
                                 onClick={toggleListening}
-                                disabled={isLoading || !isTurnActive}
+                                disabled={isLoading || !isTurnActive || isDebateFinished}
                                 className={`flex h-12 w-12 items-center justify-center rounded-full transition-all 
                                     ${isListening
                                         ? 'animate-pulse bg-red-100 text-red-600 hover:bg-red-200'
@@ -683,7 +718,7 @@ export default function DebatePage({ params }: { params: Promise<{ id: string }>
                         </div>
                     </div>
                     <div className="mt-1 text-center text-xs text-zinc-400">
-                        {isTurnActive ? "Press Enter to send" : "Please wait..."}
+                        {isDebateFinished ? "Debate Finished": isTurnActive ? "Press Enter to send" : "Please wait..."}
                     </div>
                 </form>
             </div>
