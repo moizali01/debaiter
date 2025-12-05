@@ -27,9 +27,10 @@ const httpsOptions = {
 }
 
 // for https deployment
-const server = https.createServer(httpsOptions,app)
+// const server = https.createServer(httpsOptions,app)
+const server = http.createServer(app)
 
-const port = process.env.PORT
+const port = process.env.SOCKET_PORT
 
 // Initialize Socket.IO with CORS
 const io = new Server(server, {
