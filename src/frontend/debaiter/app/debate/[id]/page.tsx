@@ -95,6 +95,28 @@ export default function DebatePage({
     reasoning: string;
   } | null>(null);
 
+
+	useEffect(() => {
+
+			if(sessionStorage.getItem(`${debateId}:userMessages`) !== null){
+			setUserMessages(JSON.parse((sessionStorage.getItem(`${debateId}:userMessages`) as string)));
+			setOpponentMessages(JSON.parse((sessionStorage.getItem(`${debateId}:opponentMessages`) as string)));
+			setUserInput((sessionStorage.getItem(`${debateId}:userInput`) as string))
+		}
+
+	},[])
+
+
+	useEffect(() => {
+		sessionStorage.setItem(`${debateId}:userMessages`, JSON.stringify(userMessages))
+		sessionStorage.setItem(`${debateId}:opponentMessages`, JSON.stringify(opponentMessages))
+		sessionStorage.setItem(`${debateId}:userInput`, JSON.stringify(userInput))
+
+	},[
+		userMessages,opponentMessages,
+		userInput,connectionStatus,
+		])
+
   // Opponent link
   const opponentQueryParams = new URLSearchParams({
     topic: debateParams.topic,
