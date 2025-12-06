@@ -92,7 +92,7 @@ export default function LeaderboardPage() {
       // Find current user's rank
       if (session?.user?.email) {
         const userIndex = leaderboardData.findIndex(
-          (entry) => entry.user_email === session.user.email
+          (entry) => entry.user_email === session.user?.email
         );
         if (userIndex !== -1) {
           setUserRank({
